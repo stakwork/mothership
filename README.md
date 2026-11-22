@@ -55,7 +55,8 @@ mothership/
 │   ├── go.mod         # stdlib-only Go module (separate from plugin's bifrost dep)
 │   ├── main.go        # PID-1 binary: owns :8181, fronts bifrost + /_plugin/*
 │   ├── logsoffload.go # BIFROST_LOGS_S3_* -> config.json logs_store (+ 30-day retention)
-│   └── legacy.go      # preflight, move the pre-offload logs.db aside, archive it
+│   ├── legacy.go      # preflight, move the pre-offload logs.db aside, archive it
+│   └── identity.go    # BIFROST_IDENTITY_ISSUER: the gateway as its own OIDC issuer
 └── logarchive/        # /app/logs-archive: S3 preflight + legacy logs.db upload
                        #   (own module, AWS SDK pinned to bifrost's versions)
 ```
@@ -487,6 +488,95 @@ upstream (no provider keys, no spend):
 ```bash
 make docker-build
 scripts/logs-s3-e2e.sh
+```
+
+## Anthropic without an API key
+
+The gateway can be its own OIDC issuer, so Anthropic's
+[workload identity federation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation)
+trusts it and no `sk-ant-…` key is stored anywhere. Nothing about it is
+cloud-specific: the gateway holds its own signing key.
+
+**How it works.** With `BIFROST_IDENTITY_ISSUER` set, the wrapper
+(`wrapper/identity.go`):
+
+1. keeps a P-256 key at `/app/data/identity/signing-key.pem`, made on the
+   first boot (0600, in the data volume, so in backups too);
+2. serves, unauthenticated, `/.well-known/openid-configuration` and the
+   public key set it names, `/.well-known/mothership-jwks.json` (not
+   `/.well-known/jwks.json`, which bifrost-http keeps for its MCP OAuth
+   server);
+3. writes a signed JWT to `/run/secrets/mothership/anthropic-identity-token`
+   before bifrost-http starts and every 30 s after: `iss` the issuer, `sub`
+   `mothership`, `aud` `https://api.anthropic.com`, 30 minutes of life, a
+   fresh `jti`, ES256 with the key's RFC 7638 thumbprint as `kid`.
+
+Bifrost (v2.5+) does the rest. An Anthropic key with no value and an
+`anthropic_key_config.workload_identity` block reads that file on each
+exchange, trades it at `POST {base_url}/v1/oauth/token` for an
+`sk-ant-oat01-…` token (about an hour: Anthropic grants the lesser of the
+rule's lifetime and twice the assertion's remaining life), caches it,
+refreshes it two minutes before expiry and sends it as a bearer. A `jti`
+makes each assertion single-use; Bifrost waits for the file to change
+before exchanging again, which the 30 s rewrite guarantees.
+
+| Variable | Meaning |
+| --- | --- |
+| `BIFROST_IDENTITY_ISSUER` | The issuer URL, e.g. `https://mothership.acme.stakwork.ai`. Unset: none of this runs, and `/.well-known/*` reaches bifrost-http as before. `/.well-known/openid-configuration` and `/.well-known/mothership-jwks.json` under it must reach this container's `:8181`. |
+
+**What the manager does** (Stadeum, for each box):
+
+1. Set `BIFROST_IDENTITY_ISSUER` to the box's gateway origin, and route
+   those two `/.well-known/` paths there (on Stadeum: the
+   `mothership.{$HOST}` site in the Caddyfile).
+2. Register the issuer in Anthropic's console (Workload identity → Custom
+   OIDC): its URL for discovery, or, for a box Anthropic cannot reach, the
+   key set pasted inline (`GET /.well-known/mothership-jwks.json` on the
+   box's network). Then a service account and a federation rule matching
+   `iss` and `sub` `mothership`, audience `https://api.anthropic.com`,
+   scope `workspace:inference`.
+3. Write the Anthropic key through Bifrost's API, where a static key goes
+   today (`PUT /api/providers/anthropic/keys/{key_id}`):
+
+   ```json
+   {
+     "name": "anthropic-key-1",
+     "value": "",
+     "models": ["*"],
+     "weight": 1,
+     "anthropic_key_config": {
+       "workload_identity": {
+         "federation_rule_id": "fdrl_…",
+         "organization_id": "…",
+         "service_account_id": "svac_…",
+         "workspace_id": "wrkspc_…",
+         "identity_source": {
+           "type": "file",
+           "path": "/run/secrets/mothership/anthropic-identity-token"
+         }
+       }
+     }
+   }
+   ```
+
+   `workspace_id` only when the rule spans several workspaces. A key with a
+   value wins over the block, so pasting a static key still works.
+
+**What it costs.** The private key sits in the data volume and its backups.
+Whoever holds it can mint assertions until the rule is archived in
+Anthropic's console, as with a leaked API key, but for that one box only.
+The key is never replaced on its own. Deleting the file makes a new key
+(and `kid`) on the next boot: an issuer registered by discovery picks it up
+within a minute, one registered with the key set inline needs it pasted
+again.
+
+`scripts/anthropic-federation-e2e.ts` runs the image against a fake
+Anthropic that checks each assertion the way Anthropic does (signature
+from the served key set, `iss`, `aud`, `exp`, an unused `jti`):
+
+```bash
+make docker-build
+cd auth/ts && npm install && node --import tsx ../../scripts/anthropic-federation-e2e.ts
 ```
 
 ## Upgrading Bifrost

@@ -66,6 +66,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -204,6 +205,59 @@ func main() {
 		}
 	}
 
+	// The gateway's own OIDC issuer (identity.go), for providers that
+	// federate workload identity. Its first token is written before
+	// bifrost-http starts, so the first exchange finds one. Any failure
+	// leaves it off for this boot; the other providers are unaffected.
+	id, err := identityFromEnv(os.Getenv, appDir)
+	if err != nil {
+		logger.Printf("ERROR: identity issuer off for this boot: %v", err)
+		id = nil
+	}
+	if id != nil {
+		if err := id.writeToken(); err != nil {
+			logger.Printf("ERROR: first identity token not written (retrying every %s): %v", identityTokenInterval, err)
+		}
+		logger.Printf("identity issuer on: iss=%s kid=%s sub=%s aud=%s token_file=%s",
+			id.issuer, id.kid, identitySubject, identityAudience, id.tokenPath)
+		go id.run(rootCtx, logger, identityTokenInterval)
+	}
+
+	// The public server. Its handler is swapped to the full proxy once
+	// bifrost-http and the plugin are up.
+	handler := &swapHandler{}
+	server := &http.Server{
+		Addr:              publicAddr,
+		Handler:           handler,
+		ReadHeaderTimeout: 30 * time.Second,
+		// No ReadTimeout / WriteTimeout: SSE streams from Bifrost can
+		// be arbitrarily long. The upstream is responsible for its
+		// own timeouts (bifrost has them) and clients can hang up.
+		IdleTimeout: 120 * time.Second,
+	}
+	serverDone := make(chan error, 1)
+	listen := func(note string) {
+		go func() {
+			logger.Printf("listening on %s (%s)", publicAddr, note)
+			serverDone <- server.ListenAndServe()
+		}()
+	}
+
+	// With an issuer, listen before bifrost-http starts. Its first token
+	// exchanges happen during bifrost-http's boot (it lists each key's
+	// models), and the provider may fetch the issuer's key set to check
+	// them: a closed port would fail that exchange, and the key would
+	// boot with no models. Until the proxy is ready only the two
+	// /.well-known documents are answered; everything else gets 503.
+	// Without an issuer the port opens once the proxy is ready, as before.
+	early := id != nil
+	if early {
+		handler.set(id.wellKnown(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "gateway starting", http.StatusServiceUnavailable)
+		})))
+		listen("early: the issuer's /.well-known documents only, until bifrost-http is ready")
+	}
+
 	// Write config.json, start bifrost-http, and wait for it to bind
 	// its listener. If it dies during startup, surface that immediately
 	// instead of timing out.
@@ -259,24 +313,13 @@ func main() {
 	}
 	cancelPlugin()
 
-	// Build the proxy and start the public server.
-	handler := newProxy(logger, pluginReady)
-	server := &http.Server{
-		Addr:              publicAddr,
-		Handler:           handler,
-		ReadHeaderTimeout: 30 * time.Second,
-		// No ReadTimeout / WriteTimeout: SSE streams from Bifrost can
-		// be arbitrarily long. The upstream is responsible for its
-		// own timeouts (bifrost has them) and clients can hang up.
-		IdleTimeout: 120 * time.Second,
+	// Build the proxy and serve it.
+	handler.set(newProxy(logger, pluginReady, id))
+	if early {
+		logger.Printf("proxy ready on %s (plugin_routes_enabled=%t)", publicAddr, pluginReady)
+	} else {
+		listen(fmt.Sprintf("plugin_routes_enabled=%t", pluginReady))
 	}
-
-	serverDone := make(chan error, 1)
-	go func() {
-		logger.Printf("listening on %s (plugin_routes_enabled=%t)",
-			publicAddr, pluginReady)
-		serverDone <- server.ListenAndServe()
-	}()
 
 	// Wait for either a shutdown signal, the public server to error
 	// out, or bifrost-http to exit on its own.
@@ -555,10 +598,22 @@ func syncSeedConfig(logger *log.Logger, seedPath, appDir string, offload *logsOf
 // torn write here would leave Bifrost trying to parse half a JSON file
 // on the next boot.
 func writeFileAtomic(path string, data []byte) error {
+	return writeFileAtomicMode(path, data, 0o644)
+}
+
+// writeFileAtomicMode is writeFileAtomic with the file's mode, applied to
+// the temp file before any byte is written (a signing key must never sit
+// world-readable, even for a moment).
+func writeFileAtomicMode(path string, data []byte, mode os.FileMode) error {
 	tmpPath := path + ".tmp"
-	dst, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	dst, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 	if err != nil {
 		return fmt.Errorf("create temp %s: %w", tmpPath, err)
+	}
+	if err := dst.Chmod(mode); err != nil {
+		_ = dst.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("chmod temp %s: %w", tmpPath, err)
 	}
 	if _, err := dst.Write(data); err != nil {
 		_ = dst.Close()
@@ -581,6 +636,22 @@ func writeFileAtomic(path string, data []byte) error {
 	return nil
 }
 
+// swapHandler is the public server's handler, replaceable while it
+// serves: the early (issuer-only) handler during boot, then the proxy.
+type swapHandler struct {
+	h atomic.Pointer[http.Handler]
+}
+
+func (s *swapHandler) set(h http.Handler) { s.h.Store(&h) }
+
+func (s *swapHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h := s.h.Load(); h != nil {
+		(*h).ServeHTTP(w, r)
+		return
+	}
+	http.Error(w, "gateway starting", http.StatusServiceUnavailable)
+}
+
 // newProxy builds the public HTTP handler. Routes `/_plugin/*` to the
 // plugin's loopback server (if reachable) and everything else to
 // bifrost-http.
@@ -593,7 +664,10 @@ func writeFileAtomic(path string, data []byte) error {
 //
 // Unless BIFROST_ENABLE_REALTIME is truthy, the realtime family of
 // routes is refused here at the wrapper (see isRealtimePath / blockRealtime).
-func newProxy(logger *log.Logger, pluginReady bool) http.Handler {
+//
+// With an identity issuer (identity.go), its /.well-known/openid-configuration
+// and /.well-known/mothership-jwks.json are answered here, unauthenticated.
+func newProxy(logger *log.Logger, pluginReady bool, id *identity) http.Handler {
 	bifrostURL := mustParseURL(bifrostUpstream)
 	bifrostProxy := newSingleHostReverseProxy(bifrostURL, logger, "bifrost")
 	installAuthRewrite(bifrostProxy)
@@ -616,7 +690,13 @@ func newProxy(logger *log.Logger, pluginReady bool) http.Handler {
 		logger.Printf("realtime endpoints ENABLED (BIFROST_ENABLE_REALTIME is set)")
 	}
 
-	return newRouter(bifrostProxy, pluginProxy, realtimeBlocked, logger)
+	router := newRouter(bifrostProxy, pluginProxy, realtimeBlocked, logger)
+	if id != nil {
+		// The issuer's two /.well-known documents, ahead of everything
+		// else; any other path routes as before.
+		return id.wellKnown(router)
+	}
+	return router
 }
 
 // newRouter builds the request router the public listener serves. Split

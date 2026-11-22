@@ -243,6 +243,12 @@ COPY data/config.json                                     /app/config.json.seed
 # Mount it as a named volume in docker-compose to persist across restarts.
 RUN mkdir -p /app/data/logs && chown -R app:app /app
 
+# Where the wrapper writes the gateway's identity token when it is its own
+# OIDC issuer (wrapper/identity.go, BIFROST_IDENTITY_ISSUER). Bifrost reads
+# identity token files only under /run/secrets or /var/run/secrets.
+RUN mkdir -p /run/secrets/mothership && chown app:app /run/secrets/mothership \
+ && chmod 700 /run/secrets/mothership
+
 USER app
 
 # Process layout inside the container:
