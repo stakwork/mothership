@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/pluginlog"
 )
 
 // adminCredentialsHandler returns the handler for
@@ -13,7 +13,7 @@ import (
 // The endpoint echoes the admin user/password the plugin saw in its
 // env at boot. Hive calls it ONCE per swarm to bootstrap itself with
 // the Bifrost admin credentials (the swarm super-admin generates the
-// password randomly per-instance — see gateway/plans/phases/
+// password randomly per-instance — see plans/phases/
 // phase-3-swarm-handoff.md).
 //
 // Idempotency

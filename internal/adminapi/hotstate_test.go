@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stakwork/stakgraph/gateway/internal/auth"
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
+	"github.com/stakwork/mothership/internal/auth"
+	"github.com/stakwork/mothership/internal/redisclient"
 )
 
 // bearerDo issues an arbitrary-method request with the provisioning

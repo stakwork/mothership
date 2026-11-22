@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stakwork/stakgraph/gateway/internal/duration"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/duration"
+	"github.com/stakwork/mothership/internal/pluginlog"
 )
 
 // ─── public response shapes (consumed by the SPA & by tygo) ──────────

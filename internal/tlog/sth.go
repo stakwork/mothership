@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
+	macaroon "github.com/stakwork/mothership/auth/go"
 )
 
 // STH is a signed tree head. Sig is the log key's ECDSA signature over

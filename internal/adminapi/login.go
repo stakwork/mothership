@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
-	"github.com/stakwork/stakgraph/gateway/internal/sessions"
+	"github.com/stakwork/mothership/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/sessions"
 )
 
 // loginTimeout caps the full login flow (rate-limit check, password
@@ -24,7 +24,7 @@ const loginTimeout = 5 * time.Second
 // it without an extra `/me` round-trip.
 //
 // Exported because tygo emits TS bindings from this declaration
-// (see gateway/tygo.yaml); rename in lockstep with the frontend.
+// (see tygo.yaml); rename in lockstep with the frontend.
 type LoginResponse struct {
 	User string `json:"user"`
 }

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/stakwork/stakgraph/gateway/internal/pricing"
+	"github.com/stakwork/mothership/internal/pricing"
 )
 
 // freshRuntimePricing points the runtime table at a file in a temp

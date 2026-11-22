@@ -18,16 +18,15 @@ keys.json                  the deterministic seed keys used by all fixtures
 ## Transparency-log fixtures (`tlog-*.json`)
 
 Two more files pin the phase-12 transparency log
-(`gateway/plans/phases/phase-12-transparency-log.md`). For these the
-roles flip: **Go is the producer.** `gateway/internal/tlog` generates
+(`plans/phases/phase-12-transparency-log.md`). For these the
+roles flip: **Go is the producer.** `internal/tlog` generates
 them with
 
 ```sh
-cd gateway
 go test ./internal/tlog -update
 ```
 
-and `gateway/auth/ts/test/tlog.test.ts` checks them byte-for-byte.
+and `auth/ts/test/tlog.test.ts` checks them byte-for-byte.
 
 ```
 tlog-00-rfc9162-vectors.json   raw-byte CT test leaves: leaf hashes, roots 0..8,
@@ -45,10 +44,10 @@ anything real.
 ## Reproducibility
 
 These files are **generated**, not hand-written. The source of truth
-is `gateway/auth/ts/scripts/regenerate-fixtures.ts`. To regenerate:
+is `auth/ts/scripts/regenerate-fixtures.ts`. To regenerate:
 
 ```sh
-cd gateway/auth/ts
+cd auth/ts
 npm install
 npm run regenerate-fixtures
 ```
@@ -112,8 +111,8 @@ Every byte at every intermediate step:
 
 ## How implementations use this
 
-Both the Go pure verifier (`gateway/auth/go/`) and the TS package
-(`gateway/auth/ts/`) ship a fixture test that:
+Both the Go pure verifier (`auth/go/`) and the TS package
+(`auth/ts/`) ship a fixture test that:
 
 1. Reads each `NN-*.json`.
 2. Re-signs `ua_unsigned` with `org_priv_hex` (or multisig signers).

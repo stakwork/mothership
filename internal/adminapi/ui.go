@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/stakwork/stakgraph/gateway/internal/env"
+	"github.com/stakwork/mothership/internal/env"
 )
 
 // uiFS is the compiled SPA bundle, dropped here by the Dockerfile's

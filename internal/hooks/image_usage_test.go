@@ -10,8 +10,8 @@ import (
 
 	"github.com/maximhq/bifrost/core/schemas"
 
-	"github.com/stakwork/stakgraph/gateway/internal/auth"
-	"github.com/stakwork/stakgraph/gateway/internal/pricing"
+	"github.com/stakwork/mothership/internal/auth"
+	"github.com/stakwork/mothership/internal/pricing"
 )
 
 // gpt-image-1-mini's datasheet rates (getbifrost.ai/datasheet,

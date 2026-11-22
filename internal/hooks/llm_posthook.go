@@ -5,11 +5,11 @@ import (
 
 	"github.com/maximhq/bifrost/core/schemas"
 
-	"github.com/stakwork/stakgraph/gateway/internal/auth"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginctx"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
-	"github.com/stakwork/stakgraph/gateway/internal/pricing"
-	"github.com/stakwork/stakgraph/gateway/internal/tlog"
+	"github.com/stakwork/mothership/internal/auth"
+	"github.com/stakwork/mothership/internal/pluginctx"
+	"github.com/stakwork/mothership/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/pricing"
+	"github.com/stakwork/mothership/internal/tlog"
 )
 
 // LLMPost is the body of PostLLMHook. It fires after the upstream

@@ -11,10 +11,10 @@ import (
 	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/redis/go-redis/v9"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
-	"github.com/stakwork/stakgraph/gateway/internal/auth"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginctx"
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
+	macaroon "github.com/stakwork/mothership/auth/go"
+	"github.com/stakwork/mothership/internal/auth"
+	"github.com/stakwork/mothership/internal/pluginctx"
+	"github.com/stakwork/mothership/internal/redisclient"
 )
 
 // Bifrost core v1.6 routes the Anthropic-native /anthropic/v1/messages

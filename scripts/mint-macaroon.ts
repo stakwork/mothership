@@ -1,9 +1,9 @@
 /**
  * mint-macaroon.ts — mint a fresh wire-format macaroon for smoke tests.
  *
- * Companion to gateway/scripts/smoke-test-enforcement.sh. Run via:
+ * Companion to scripts/smoke-test-enforcement.sh. Run via:
  *
- *   cd gateway/auth/ts && node --import tsx ../../scripts/mint-macaroon.ts \
+ *   cd auth/ts && node --import tsx ../../scripts/mint-macaroon.ts \
  *     --org-id org_smoke \
  *     --user-id u_alice \
  *     --agent coder \
@@ -23,11 +23,11 @@
  * Budget and the invocation's Budget so the verifier can run its
  * symmetric narrowing checks end-to-end.
  *
- * Why this lives in gateway/scripts/ instead of gateway/auth/ts/scripts/
+ * Why this lives in scripts/ instead of auth/ts/scripts/
  * --------------------------------------------------------------------
  * The mint helper is smoke-test support code, not a piece of the
  * cryptographic package. Keeping it next to the bash script that
- * invokes it (gateway/scripts/smoke-test-enforcement.sh) means the
+ * invokes it (scripts/smoke-test-enforcement.sh) means the
  * pair moves together when either changes. The auth/ts/scripts/
  * directory is reserved for fixture regeneration, which is the only
  * other auth-package-internal tool.
@@ -42,7 +42,7 @@
  * Keys are NOT a flag
  * -------------------
  * We always sign with the fixture seed keys (priv hex 0x…01 for org,
- * 0x…11…11 for user) loaded from gateway/auth/fixtures/keys.json.
+ * 0x…11…11 for user) loaded from auth/fixtures/keys.json.
  * Those values are deliberately published test material — see the
  * fixture file's `description` field. The smoke test registers the
  * matching org pubkey against `org_id` via /_plugin/trust before
@@ -158,7 +158,7 @@ function loadFixtureKeys(): {
 } {
   // Resolve relative to *this script's* location so the file works
   // regardless of the caller's cwd. The script lives at
-  // gateway/scripts/mint-macaroon.ts; fixtures at gateway/auth/fixtures/.
+  // scripts/mint-macaroon.ts; fixtures at auth/fixtures/.
   const here = dirname(fileURLToPath(import.meta.url));
   const fixturesPath = join(here, "..", "auth", "fixtures", "keys.json");
   const raw = readFileSync(fixturesPath, "utf8");

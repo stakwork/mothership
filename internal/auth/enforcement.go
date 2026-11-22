@@ -7,10 +7,10 @@ import (
 
 	"github.com/maximhq/bifrost/core/schemas"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginctx"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
-	"github.com/stakwork/stakgraph/gateway/internal/trust"
+	macaroon "github.com/stakwork/mothership/auth/go"
+	"github.com/stakwork/mothership/internal/pluginctx"
+	"github.com/stakwork/mothership/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/trust"
 )
 
 // Decision is the result of running the full verify+revocation path
@@ -101,7 +101,7 @@ func Evaluate(ctx context.Context, rawMacaroon string) Decision {
 	// Phase-11 realm-membership check. Asserts the swarm's own
 	// realm_id (if configured) is in the macaroon's permitted set
 	// (if the macaroon scoped per-realm). No-op for single-swarm
-	// deployments. See gateway/plans/phases/phase-11-symmetric-recursive-authorization.md
+	// deployments. See plans/phases/phase-11-symmetric-recursive-authorization.md
 	// "The plugin's realm-membership check".
 	if memErr := CheckRealmMembership(claims, registry); memErr != nil {
 		d.Err = memErr

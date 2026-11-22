@@ -2,7 +2,7 @@ services:
   # Macaroon-enforcement state lives here: revocation tombstones,
   # per-run cost accumulators, kill switches, tool-loop history. The
   # plugin namespaces every key with `bifrost:` (see
-  # gateway/plans/phases/phase-6-plugin-enforcement.md "Namespace") so
+  # plans/phases/phase-6-plugin-enforcement.md "Namespace") so
   # this instance can be shared with other consumers; in
   # docker-compose we keep it private to the gateway for simplicity.
   #
@@ -27,7 +27,7 @@ services:
     # No host port: only the bifrost service needs to reach it.
 
   bifrost:
-    # Built by `make docker-build` (see ../gateway/Dockerfile). This image
+    # Built by `make docker-build` (see Dockerfile). This image
     # bundles a dynamically-linked bifrost-http + our governance plugin .so
     # at /app/plugins/stakgraph-gateway.so. The upstream maximhq/bifrost
     # image is statically linked and cannot load Go plugins.

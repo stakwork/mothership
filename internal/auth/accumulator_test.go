@@ -7,7 +7,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
+	macaroon "github.com/stakwork/mothership/auth/go"
 )
 
 // chainClaims builds a verified-claims shape with an invocation layer

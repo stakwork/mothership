@@ -2,7 +2,7 @@ package macaroon_test
 
 // Signer-side fixture test (Go).
 //
-// Loads every gateway/auth/fixtures/*.json, re-signs the unsigned
+// Loads every auth/fixtures/*.json, re-signs the unsigned
 // layers from the seed private keys, attenuates from the unsigned
 // caveats, assembles + encodes, and asserts the resulting bytes match
 // what the TS signer produced.
@@ -17,7 +17,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
+	macaroon "github.com/stakwork/mothership/auth/go"
 )
 
 func TestSignerFixtures(t *testing.T) {

@@ -7,8 +7,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
+	"github.com/stakwork/mothership/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/redisclient"
 )
 
 // loginAttemptWindow is the rolling window over which failed login

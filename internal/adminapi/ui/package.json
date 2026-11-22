@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Stakgraph gateway plugin admin UI (Preact + Vite + wouter + Tanstack Query + uPlot). Embedded into the Go plugin binary via //go:embed and served under /_plugin/ui/. See gateway/plans/phases/phase-8-observability-dashboard.md.",
+  "description": "Stakgraph gateway plugin admin UI (Preact + Vite + wouter + Tanstack Query + uPlot). Embedded into the Go plugin binary via //go:embed and served under /_plugin/ui/. See plans/phases/phase-8-observability-dashboard.md.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

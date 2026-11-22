@@ -18,7 +18,7 @@ import (
 //   - now: the verifier's current time. Caveats use absolute exp.
 //
 // Verify is pure: no I/O, no revocation, no Bifrost types. Adapters
-// (gateway/internal/auth/) layer revocation + transport on top.
+// (internal/auth/) layer revocation + transport on top.
 func Verify(macaroonB64 string, policy Policy, now time.Time) (*Claims, error) {
 	raw, err := Base64urlToBytes(macaroonB64)
 	if err != nil {

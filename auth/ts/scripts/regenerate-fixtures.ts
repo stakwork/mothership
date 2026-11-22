@@ -1,5 +1,5 @@
 /**
- * Regenerate `gateway/auth/fixtures/*.json` from deterministic seed
+ * Regenerate `auth/fixtures/*.json` from deterministic seed
  * keys. Run with:
  *
  *     npm run regenerate-fixtures

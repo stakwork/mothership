@@ -8,10 +8,10 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/stakwork/stakgraph/gateway/internal/auth"
-	"github.com/stakwork/stakgraph/gateway/internal/duration"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
+	"github.com/stakwork/mothership/internal/auth"
+	"github.com/stakwork/mothership/internal/duration"
+	"github.com/stakwork/mothership/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/redisclient"
 )
 
 // Spend-source selection
@@ -225,7 +225,7 @@ func (h *budgetHandlers) readSpentFromLogs(
 
 // bucketBounds derives (period_start, period_end, redis_bucket_key)
 // for a given window string, anchored to `now`. Thin adapter over
-// gateway/internal/duration — the same package the phase-6
+// internal/duration — the same package the phase-6
 // PostLLMHook accumulator uses to compute the key it writes, so
 // reader and writer can't drift.
 func bucketBounds(window string, now time.Time) (start, end time.Time, key string, ok bool) {

@@ -8,9 +8,9 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
-	"github.com/stakwork/stakgraph/gateway/internal/duration"
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
+	macaroon "github.com/stakwork/mothership/auth/go"
+	"github.com/stakwork/mothership/internal/duration"
+	"github.com/stakwork/mothership/internal/redisclient"
 )
 
 // The cap walk — phase-6 "Hot path" PIPELINE 2. Reads the

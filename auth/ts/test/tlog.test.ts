@@ -2,7 +2,7 @@
  * Transparency-log fixture parity (TS side).
  *
  * The Go gateway is the producer here: `go test ./internal/tlog
- * -update` writes `gateway/auth/fixtures/tlog-*.json` from the Go
+ * -update` writes `auth/fixtures/tlog-*.json` from the Go
  * implementation, which is itself pinned to the RFC 6962 / RFC 9162
  * reference vectors. This test asserts that every value in those
  * files reproduces byte-for-byte from this package.

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/pluginlog"
 )
 
 // Window cache for the rollup handlers.

@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
+	macaroon "github.com/stakwork/mothership/auth/go"
 )
 
 // Cross-language fixtures for the transparency log, mirror image of
 // the macaroon fixtures: here Go is the producer, so Go generates and
-// gatekey (gateway/auth/ts/test/tlog.test.ts) checks byte-for-byte.
+// gatekey (auth/ts/test/tlog.test.ts) checks byte-for-byte.
 //
-//	go test ./internal/tlog -update     # regenerate gateway/auth/fixtures/tlog-*.json
+//	go test ./internal/tlog -update     # regenerate auth/fixtures/tlog-*.json
 //	go test ./internal/tlog             # assert this implementation reproduces them
 //
 // Two files:
@@ -33,7 +33,7 @@ import (
 //	                              bytes, hashes, roots, every proof, and
 //	                              signed heads for the empty and full tree.
 
-var update = flag.Bool("update", false, "regenerate gateway/auth/fixtures/tlog-*.json from this implementation")
+var update = flag.Bool("update", false, "regenerate auth/fixtures/tlog-*.json from this implementation")
 
 const (
 	fixturesDir       = "../../auth/fixtures"
@@ -178,7 +178,7 @@ func buildVectorFixture(t *testing.T) vectorFixture {
 	t.Helper()
 	l := newTestLog(t, tempPath(t))
 	var fx vectorFixture
-	fx.Description = "RFC 9162 §2.1 (RFC 6962) Merkle tree vectors over the eight classic Certificate Transparency test leaves: leaf hashes, roots at every size 0..8, every inclusion proof, every consistency proof (old_size 0 included: the empty tree is extended by every tree with an empty proof). Values are pinned to the transparency-dev/merkle reference implementation by gateway/internal/tlog/merkle_test.go."
+	fx.Description = "RFC 9162 §2.1 (RFC 6962) Merkle tree vectors over the eight classic Certificate Transparency test leaves: leaf hashes, roots at every size 0..8, every inclusion proof, every consistency proof (old_size 0 included: the empty tree is extended by every tree with an empty proof). Values are pinned to the transparency-dev/merkle reference implementation by internal/tlog/merkle_test.go."
 	for _, leaf := range referenceLeaves {
 		fx.Inputs.LeavesHex = append(fx.Inputs.LeavesHex, hex.EncodeToString(leaf))
 		// Feed raw bytes through the tree directly: these leaves are

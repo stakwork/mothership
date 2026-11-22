@@ -98,7 +98,7 @@ const (
 
 	// pluginPathPrefix is what we route to pluginUpstream. Everything
 	// else goes to bifrostUpstream. Keep in sync with plugin's
-	// registered routes (see gateway/main.go startPluginServer).
+	// registered routes (see main.go startPluginServer).
 	pluginPathPrefix = "/_plugin/"
 
 	// readinessTimeout is how long we wait for bifrost-http to become
@@ -244,7 +244,7 @@ func main() {
 	}
 
 	// Plugin server is optional — it only starts if BIFROST_ADMIN_*
-	// env vars are set (see gateway/main.go). Best-effort probe with
+	// env vars are set (see main.go). Best-effort probe with
 	// a short timeout so missing-env dev setups don't block startup.
 	pluginReady := false
 	pluginCtx, cancelPlugin := context.WithTimeout(rootCtx, 5*time.Second)

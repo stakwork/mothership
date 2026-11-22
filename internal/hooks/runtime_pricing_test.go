@@ -12,10 +12,10 @@ import (
 
 	"github.com/maximhq/bifrost/core/schemas"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
-	"github.com/stakwork/stakgraph/gateway/internal/auth"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginctx"
-	"github.com/stakwork/stakgraph/gateway/internal/pricing"
+	macaroon "github.com/stakwork/mothership/auth/go"
+	"github.com/stakwork/mothership/internal/auth"
+	"github.com/stakwork/mothership/internal/pluginctx"
+	"github.com/stakwork/mothership/internal/pricing"
 )
 
 // A Maple call: what bifrost hands the hook for a custom provider

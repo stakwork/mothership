@@ -1,4 +1,4 @@
-module github.com/stakwork/stakgraph/gateway
+module github.com/stakwork/mothership
 
 go 1.27.0
 

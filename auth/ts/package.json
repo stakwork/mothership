@@ -45,12 +45,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/stakwork/stakgraph.git",
-    "directory": "gateway/auth/ts"
+    "url": "git+https://github.com/stakwork/mothership.git",
+    "directory": "auth/ts"
   },
-  "homepage": "https://github.com/stakwork/stakgraph/tree/main/gateway/auth/ts#readme",
+  "homepage": "https://github.com/stakwork/mothership/tree/main/auth/ts#readme",
   "bugs": {
-    "url": "https://github.com/stakwork/stakgraph/issues"
+    "url": "https://github.com/stakwork/mothership/issues"
   },
   "author": "Stakwork",
   "license": "MIT",

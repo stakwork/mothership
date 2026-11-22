@@ -2,10 +2,10 @@
  * custom-provider-e2e.ts — a custom OpenAI-compatible provider through the
  * real gateway image, priced from the runtime table, across a restart.
  *
- * Run (Docker up, `npm install` done in gateway/auth/ts):
+ * Run (Docker up, `npm install` done in auth/ts):
  *
  *   make docker-build
- *   cd gateway/auth/ts && node --import tsx ../../scripts/custom-provider-e2e.ts
+ *   cd auth/ts && node --import tsx ../../scripts/custom-provider-e2e.ts
  *
  * IMAGE picks another image (default stakgraph-gateway:dev); KEEP=1 leaves
  * the containers up for poking at. Exits non-zero when any check fails.

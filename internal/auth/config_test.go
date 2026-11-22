@@ -3,7 +3,7 @@ package auth
 import (
 	"testing"
 
-	"github.com/stakwork/stakgraph/gateway/internal/env"
+	"github.com/stakwork/mothership/internal/env"
 )
 
 func TestInit_NilConfig_DefaultsToShadow(t *testing.T) {

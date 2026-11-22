@@ -3,9 +3,9 @@ package hooks
 import (
 	"github.com/maximhq/bifrost/core/schemas"
 
-	"github.com/stakwork/stakgraph/gateway/internal/auth"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginctx"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/auth"
+	"github.com/stakwork/mothership/internal/pluginctx"
+	"github.com/stakwork/mothership/internal/pluginlog"
 )
 
 // LLMPre is the body of PreLLMHook. It fires after Bifrost has parsed
@@ -13,7 +13,7 @@ import (
 // first place we can see provider + model resolved (vs the raw URL
 // path in TransportPre).
 //
-// Per gateway/plans/phases/phase-6-plugin-enforcement.md, PreLLMHook
+// Per plans/phases/phase-6-plugin-enforcement.md, PreLLMHook
 // is the canonical site for verified-claims-aware logic — not
 // TransportPre, which fires before the request has been parsed. The
 // raw x-macaroon header was stashed on context by TransportPre; we

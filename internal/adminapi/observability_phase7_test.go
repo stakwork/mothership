@@ -9,7 +9,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
+	"github.com/stakwork/mothership/internal/redisclient"
 )
 
 // Phase-7 remainder: by-session / by-model rollups, token and latency

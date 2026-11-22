@@ -1,5 +1,5 @@
 /**
- * Pure verifier — TS mirror of `gateway/auth/go/verify.go`. Takes a
+ * Pure verifier — TS mirror of `auth/go/verify.go`. Takes a
  * macaroon (either base64url-encoded or already parsed), the trusting
  * org's policy, and a clock; returns `Claims` or throws a
  * `VerifyError` with a machine-readable `code`.

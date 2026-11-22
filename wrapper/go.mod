@@ -6,6 +6,6 @@
 //
 // Bumping Go here is safe and independent of the plugin's Go version
 // requirement.
-module github.com/stakwork/stakgraph/gateway/wrapper
+module github.com/stakwork/mothership/wrapper
 
 go 1.24

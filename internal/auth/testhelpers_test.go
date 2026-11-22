@@ -19,9 +19,9 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/redis/go-redis/v9"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
-	"github.com/stakwork/stakgraph/gateway/internal/trust"
+	macaroon "github.com/stakwork/mothership/auth/go"
+	"github.com/stakwork/mothership/internal/redisclient"
+	"github.com/stakwork/mothership/internal/trust"
 )
 
 // Deterministic test keys. Reused across every test in this package

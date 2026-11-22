@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
+	macaroon "github.com/stakwork/mothership/auth/go"
 )
 
 // LeafVersion is the current leaf schema version (the "v" field).

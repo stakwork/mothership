@@ -47,8 +47,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/stakwork/stakgraph/gateway/internal/env"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/env"
+	"github.com/stakwork/mothership/internal/pluginlog"
 )
 
 // Price is one model's rates in dollars per million tokens — the

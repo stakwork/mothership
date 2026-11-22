@@ -62,7 +62,7 @@ const fmtInt = (v: number) =>
 // Hardcoded provider list — these ids match Bifrost's `provider`
 // column on every log row, so the per-provider rollup from the
 // matrix endpoint dispatches against `customData.icon` cleanly.
-// Deliberately a superset of `gateway/data/config.json`'s current
+// Deliberately a superset of `data/config.json`'s current
 // `providers` map: a provider that's been dropped from (or not yet
 // added to) the seed config still gets a card showing $0, rather
 // than having its historical spend silently vanish from the column.

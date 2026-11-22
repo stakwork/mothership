@@ -24,7 +24,7 @@
 // Failure modes
 // -------------
 // All methods return errors verbatim from go-redis. The middleware
-// (gateway/internal/adminapi/session.go) treats any error as
+// (internal/adminapi/session.go) treats any error as
 // "session not found" and fails closed by redirecting the caller to
 // the login page. Logging in itself fails if Redis is unreachable —
 // that's the correct posture for an auth subsystem (fail-closed),
@@ -42,7 +42,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
+	"github.com/stakwork/mothership/internal/redisclient"
 )
 
 // SessionTTL is how long an idle session lives before Redis expires

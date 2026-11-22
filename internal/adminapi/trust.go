@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
-	"github.com/stakwork/stakgraph/gateway/internal/trust"
+	"github.com/stakwork/mothership/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/trust"
 )
 
 // Route paths — kept as constants so server.go and tests stay in sync.

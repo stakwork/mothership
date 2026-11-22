@@ -12,8 +12,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
-	"github.com/stakwork/stakgraph/gateway/internal/sessions"
+	"github.com/stakwork/mothership/internal/redisclient"
+	"github.com/stakwork/mothership/internal/sessions"
 )
 
 // newAuthTestServer wires sessions + adminapi routes against a fresh

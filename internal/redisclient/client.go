@@ -7,7 +7,7 @@
 // The plugin shares the swarm's redis.sphinx instance with Jarvis;
 // every key the plugin reads or writes is prefixed with `bifrost:` to
 // keep the keyspaces partitioned. See
-// gateway/plans/phases/phase-6-plugin-enforcement.md ("Namespace") for
+// plans/phases/phase-6-plugin-enforcement.md ("Namespace") for
 // the contract.
 //
 // Status
@@ -15,7 +15,7 @@
 // Phase 4/5 ships only the connection bring-up and a startup smoke
 // ping (DBSIZE). The actual enforcement reads/writes (PreLLMHook
 // pipelines, PostLLMHook accumulators) land with the phase-4 adapter
-// PR in gateway/internal/auth/. This package exists so that adapter
+// PR in internal/auth/. This package exists so that adapter
 // has a single, already-initialised client to import.
 //
 // Observability mode
@@ -35,8 +35,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/stakwork/stakgraph/gateway/internal/env"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/env"
+	"github.com/stakwork/mothership/internal/pluginlog"
 )
 
 // KeyPrefix is the fixed namespace every plugin-owned Redis key

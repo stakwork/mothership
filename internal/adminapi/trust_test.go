@@ -12,7 +12,7 @@ import (
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 
-	"github.com/stakwork/stakgraph/gateway/internal/trust"
+	"github.com/stakwork/mothership/internal/trust"
 )
 
 // Test fixtures are duplicated from trust/registry_test.go so the

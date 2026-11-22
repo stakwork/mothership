@@ -4,8 +4,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/stakwork/stakgraph/gateway/internal/auth"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/auth"
+	"github.com/stakwork/mothership/internal/pluginlog"
 )
 
 // pricingPath is the runtime price table: GET reads it, PUT replaces

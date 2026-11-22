@@ -1,6 +1,6 @@
 package macaroon
 
-// Sub-agent attenuation — Go mirror of gateway/auth/ts/src/attenuate.ts.
+// Sub-agent attenuation — Go mirror of auth/ts/src/attenuate.ts.
 //
 // Appends one HMAC link to the chain. The HMAC primitive itself lives
 // in hmac.go (already shared with the verifier); this file wraps it

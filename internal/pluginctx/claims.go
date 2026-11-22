@@ -3,7 +3,7 @@ package pluginctx
 import (
 	"github.com/maximhq/bifrost/core/schemas"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
+	macaroon "github.com/stakwork/mothership/auth/go"
 )
 
 // Macaroon-related context keys. Like keyDimensions / keyStartTime

@@ -6,10 +6,10 @@ import (
 
 	"github.com/maximhq/bifrost/core/schemas"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginctx"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
-	"github.com/stakwork/stakgraph/gateway/internal/tlog"
+	macaroon "github.com/stakwork/mothership/auth/go"
+	"github.com/stakwork/mothership/internal/pluginctx"
+	"github.com/stakwork/mothership/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/tlog"
 )
 
 // appendTlogLeaf turns one accounted call into a transparency-log
@@ -17,7 +17,7 @@ import (
 // auth.ApplyToLLMPost, under the same claims-and-MarkAccounted gate,
 // so there is one leaf per call and none for a call the macaroon
 // adapter did not verify. See
-// gateway/plans/phases/phase-12-transparency-log.md "Hot path".
+// plans/phases/phase-12-transparency-log.md "Hot path".
 //
 // Identity comes from the verified claims. The macaroon hash binds
 // the leaf to the exact authorization chain; the request hash (when

@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/stakwork/stakgraph/gateway/internal/graphclient"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/graphclient"
+	"github.com/stakwork/mothership/internal/pluginlog"
 )
 
 // evals.go serves the agent-detail "Evals" tab.

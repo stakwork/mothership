@@ -17,21 +17,21 @@
 // If you're auditing what bifrost-http calls into this plugin, this
 // file is your one-stop shop.
 //
-// See gateway/README.md for the architectural overview.
+// See README.md for the architectural overview.
 package main
 
 import (
 	"github.com/maximhq/bifrost/core/schemas"
 
-	"github.com/stakwork/stakgraph/gateway/internal/adminapi"
-	"github.com/stakwork/stakgraph/gateway/internal/auth"
-	"github.com/stakwork/stakgraph/gateway/internal/env"
-	"github.com/stakwork/stakgraph/gateway/internal/hooks"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
-	"github.com/stakwork/stakgraph/gateway/internal/pricing"
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
-	"github.com/stakwork/stakgraph/gateway/internal/tlog"
-	"github.com/stakwork/stakgraph/gateway/internal/trust"
+	"github.com/stakwork/mothership/internal/adminapi"
+	"github.com/stakwork/mothership/internal/auth"
+	"github.com/stakwork/mothership/internal/env"
+	"github.com/stakwork/mothership/internal/hooks"
+	"github.com/stakwork/mothership/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/pricing"
+	"github.com/stakwork/mothership/internal/redisclient"
+	"github.com/stakwork/mothership/internal/tlog"
+	"github.com/stakwork/mothership/internal/trust"
 )
 
 // PluginName is the system identifier reported via GetName(). Bifrost
@@ -44,7 +44,7 @@ const PluginName = "stakgraph-gateway"
 //
 //  1. pluginlog.Init — so subsequent log lines are properly tagged.
 //  2. trust.LoadFromEnv — applies the precedence rules from
-//     gateway/plans/phases/phase-5-trust-registry.md. Failure here
+//     plans/phases/phase-5-trust-registry.md. Failure here
 //     is fatal: an unparseable persisted file or "refuse" reconcile
 //     mode with a divergent seed must keep us from starting with an
 //     ambiguous registry.
@@ -54,13 +54,13 @@ const PluginName = "stakgraph-gateway"
 //     connection (DBSIZE smoke test logs the size on success). Only
 //     a malformed URL is fatal; an unreachable Redis logs a warning
 //     and falls back to observability mode. See
-//     gateway/plans/phases/phase-6-plugin-enforcement.md "Namespace".
+//     plans/phases/phase-6-plugin-enforcement.md "Namespace".
 //  5. auth.Init + auth.SetTrustRegistry — parses the plugin's
 //     enforce_macaroons flag from the config block (overridable via
 //     BIFROST_PLUGIN_ENFORCE_MACAROONS; an unparseable value logs an
 //     ERROR and is ignored) and wires the trust registry into the
 //     verifier. See
-//     gateway/plans/phases/phase-4-macaroon-shape.md ("Bifrost-
+//     plans/phases/phase-4-macaroon-shape.md ("Bifrost-
 //     plugin adapter").
 //  6. tlog.Init — rebuilds the phase-12 transparency log from
 //     BIFROST_PLUGIN_TLOG_PATH and generates this boot's log key.
@@ -68,7 +68,7 @@ const PluginName = "stakgraph-gateway"
 //     refused, /_plugin/tlog/sth answers 503 with the reason) and
 //     the witness alerts on staleness, which beats dropping the
 //     whole plugin and serving inference ungoverned. See
-//     gateway/plans/phases/phase-12-transparency-log.md.
+//     plans/phases/phase-12-transparency-log.md.
 //  7. adminapi.Start — boots the loopback HTTP server.
 func Init(config any) error {
 	pluginlog.Init(PluginName, config)

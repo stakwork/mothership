@@ -8,7 +8,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
+	"github.com/stakwork/mothership/internal/redisclient"
 )
 
 const adminTestNonce = "deadbeefcafef00d0001020304050607"

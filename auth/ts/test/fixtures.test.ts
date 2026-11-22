@@ -1,7 +1,7 @@
 /**
  * Cross-language byte-equivalence test (TS side).
  *
- * Loads every `gateway/auth/fixtures/*.json`, reproduces every
+ * Loads every `auth/fixtures/*.json`, reproduces every
  * `expected.*` value from the `inputs.*` private keys + unsigned
  * objects, and fails if any byte differs.
  *

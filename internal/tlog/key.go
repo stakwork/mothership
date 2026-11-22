@@ -5,7 +5,7 @@ import (
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
+	macaroon "github.com/stakwork/mothership/auth/go"
 )
 
 // logKey is the per-boot signing key. secp256k1, generated with

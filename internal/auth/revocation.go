@@ -8,13 +8,13 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
+	macaroon "github.com/stakwork/mothership/auth/go"
+	"github.com/stakwork/mothership/internal/redisclient"
 )
 
 // Redis key sub-paths (the bifrost: prefix is added by
 // redisclient.Key). The full key shapes are documented in
-// gateway/plans/phases/phase-6-plugin-enforcement.md "Redis schema".
+// plans/phases/phase-6-plugin-enforcement.md "Redis schema".
 const (
 	// revokePrefix + <nonce> tombstones a single layer of the
 	// macaroon chain. Presence ⇒ macaroon rejected. TTL = layer.exp.

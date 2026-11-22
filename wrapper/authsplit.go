@@ -10,7 +10,7 @@
 // here before Bifrost sees the request, is the path that works for
 // every harness.
 //
-// See gateway/plans/phases/phase-10-bearer-concat-transport.md for
+// See plans/phases/phase-10-bearer-concat-transport.md for
 // the full plan, wire format, and rationale.
 //
 // Invariants
@@ -29,7 +29,7 @@
 //     that share the original value's backing bytes.
 //
 // Nothing here knows anything cryptographic. Macaroon validation
-// happens later in gateway/internal/auth/verifier.go after the plugin
+// happens later in internal/auth/verifier.go after the plugin
 // sees x-macaroon. If the right side isn't a valid macaroon, the
 // plugin produces the same 401 it would have for a malformed
 // x-macaroon today.

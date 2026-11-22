@@ -1,7 +1,7 @@
 // Package adminapi is the gateway plugin's in-process HTTP server,
 // hosting the `/_plugin/*` route namespace.
 //
-// The wrapper binary (gateway/wrapper) reverse-proxies traffic on
+// The wrapper binary (wrapper) reverse-proxies traffic on
 // `/_plugin/*` to this server (loopback only). Why a separate server
 // instead of routes registered through Bifrost's router: Bifrost
 // plugins (.so) cannot register arbitrary HTTP routes through
@@ -24,11 +24,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stakwork/stakgraph/gateway/internal/env"
-	"github.com/stakwork/stakgraph/gateway/internal/graphclient"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
-	"github.com/stakwork/stakgraph/gateway/internal/sessions"
-	"github.com/stakwork/stakgraph/gateway/internal/trust"
+	"github.com/stakwork/mothership/internal/env"
+	"github.com/stakwork/mothership/internal/graphclient"
+	"github.com/stakwork/mothership/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/sessions"
+	"github.com/stakwork/mothership/internal/trust"
 )
 
 var (

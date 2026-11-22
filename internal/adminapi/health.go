@@ -5,7 +5,7 @@ import "net/http"
 // healthHandler responds with a tiny JSON body indicating the plugin
 // server is up. No auth — returns no sensitive data and is used by:
 //
-//   - The wrapper's readiness probe (gateway/wrapper/main.go), to wait
+//   - The wrapper's readiness probe (wrapper/main.go), to wait
 //     until the plugin has bound its socket before opening the public
 //     port.
 //   - External health checks (swarm / k8s) if anyone wants to probe

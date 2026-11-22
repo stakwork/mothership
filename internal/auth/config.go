@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/stakwork/stakgraph/gateway/internal/env"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/env"
+	"github.com/stakwork/mothership/internal/pluginlog"
 )
 
 // Config is the auth subset of the plugin's config block in
-// gateway/data/config.json. See package doc for the rollout posture.
+// data/config.json. See package doc for the rollout posture.
 //
 // The block lives under plugins[].config in Bifrost's config.json
 // alongside the existing log_level entry, so adding a field here is

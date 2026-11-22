@@ -1,8 +1,8 @@
 /**
  * Wire types for the three-layer macaroon. Names and shapes match
- * `gateway/plans/phases/phase-4-macaroon-shape.md` and the
+ * `plans/phases/phase-4-macaroon-shape.md` and the
  * symmetric-recursive refinement in
- * `gateway/plans/phases/phase-11-symmetric-recursive-authorization.md`.
+ * `plans/phases/phase-11-symmetric-recursive-authorization.md`.
  *
  * All binary fields (pubkeys, signatures, HMACs, nonces) are lowercase
  * hex strings WITHOUT `0x` prefix. All timestamps are RFC 3339 / ISO

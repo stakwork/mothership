@@ -1,7 +1,7 @@
 /**
  * Transparency-log wire shapes (phase 12, Part 1). Produced by the
- * gateway plugin (`gateway/internal/tlog`, Go); verified here.
- * Spec: `gateway/plans/phases/phase-12-transparency-log.md`.
+ * gateway plugin (`internal/tlog`, Go); verified here.
+ * Spec: `plans/phases/phase-12-transparency-log.md`.
  */
 
 /**

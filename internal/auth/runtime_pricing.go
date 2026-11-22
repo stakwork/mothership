@@ -10,7 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/pluginlog"
 )
 
 // The runtime price table: rows pushed through PUT /_plugin/pricing

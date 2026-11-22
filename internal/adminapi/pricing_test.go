@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stakwork/stakgraph/gateway/internal/auth"
+	"github.com/stakwork/mothership/internal/auth"
 )
 
 // newPricingServer serves the real routing table with the runtime

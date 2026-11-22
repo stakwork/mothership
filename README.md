@@ -1,7 +1,18 @@
-# stakgraph gateway plugin
+# mothership
 
-A [Bifrost](https://github.com/maximhq/bifrost) custom plugin (Go, in-process)
-for the stakgraph LLM governance layer.
+AI gateway for agents from any provider: a [Bifrost](https://github.com/maximhq/bifrost)
+custom plugin (Go, in-process) plus the wrapper, admin UI and macaroon
+auth that make up the LLM governance layer. Published as
+`ghcr.io/stakwork/mothership` (linux/amd64 + linux/arm64) on every GitHub
+release; see [`.github/workflows/publish.yml`](.github/workflows/publish.yml).
+
+Moved out of [stakgraph](https://github.com/stakwork/stakgraph) (its
+`gateway/` directory, history kept). The design docs under `plans/` predate
+the move, so their paths are relative to that old `gateway/` directory and
+the image they name is the old `ghcr.io/stakwork/stakgraph-gateway`. The
+plugin itself still registers as `stakgraph-gateway` (the `.so` name,
+`data/config.json`, log prefix), because deployed Bifrost configs refer to
+it by that name.
 
 This is **v0 boilerplate**: every hook logs a structured line and passes
 through. No macaroon verification, Redis state, or budget enforcement yet.
@@ -20,7 +31,7 @@ expects.
 ## Layout
 
 ```
-gateway/
+mothership/
 ├── main.go            # plugin entry points (Init, GetName, Cleanup, *Hook)
 │                      #   one-line delegations into internal/ — auditable at a glance
 ├── go.mod             # pinned: bifrost/core v1.5.10, Go 1.26.2
@@ -197,9 +208,8 @@ Routes planned (drop into the same auth namespace as they're added):
 ## Quick start
 
 ```bash
-# 1. Provider keys (read by docker-compose; same .env as mcp/).
-cd gateway
-ln -sf ../mcp/.env .env   # or: cp ../mcp/.env .env
+# 1. Provider keys in .env (read by docker-compose), e.g. ANTHROPIC_API_KEY=...
+$EDITOR .env   # or reuse stakgraph's: ln -sf ../stakgraph/mcp/.env .env
 
 # 2. Build the dynamic-bifrost+plugin+wrapper image and start it.
 make docker-up
@@ -247,9 +257,9 @@ docker run --rm -v stakgraph-gateway-data:/data alpine:3.23 \
     "SELECT model, cost, metadata FROM logs ORDER BY created_at DESC LIMIT 1;"'
 # → claude-3-5-haiku-latest|0.000043|{"run-id":"r_test_001","agent-name":"smoke-test",...}
 
-# 8. (optional) end-to-end against the existing MCP harness — same port,
-#    so the existing test agent just works.
-cd ../mcp
+# 8. (optional) end-to-end against stakgraph's MCP harness — same port,
+#    so the existing test agent just works (from a stakgraph checkout).
+cd ../stakgraph/mcp
 npx tsx docs/gateway/test-agent.ts "hi, how are you?"
 ```
 

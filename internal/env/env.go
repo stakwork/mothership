@@ -49,7 +49,7 @@ const (
 	// TrustInline is an inline-JSON seed for the trust registry —
 	// used by self-host / declarative deployments. Ignored on the
 	// sphinx-swarm path where Hive populates the registry via the
-	// admin API. See gateway/plans/phases/phase-5-trust-registry.md
+	// admin API. See plans/phases/phase-5-trust-registry.md
 	// ("Three configuration sources").
 	TrustInline = "BIFROST_PLUGIN_TRUST"
 
@@ -76,7 +76,7 @@ const (
 	TrustPath = "BIFROST_PLUGIN_TRUST_PATH"
 
 	// EnforceMacaroons overrides the plugin config block's
-	// `enforce_macaroons` flag (gateway/data/config.json). config.json
+	// `enforce_macaroons` flag (data/config.json). config.json
 	// is baked into the image and re-seeded on every boot, so without
 	// this there is no way to flip a single swarm from shadow to
 	// enforce mode short of shipping a new image. Truthy: 1/true/yes/on;
@@ -103,7 +103,7 @@ const (
 	//
 	// Empty / unset ⇒ plugin runs in observability mode (verifies
 	// macaroon signatures but skips Redis-backed revocation / budget
-	// checks). See gateway/plans/phases/phase-6-plugin-enforcement.md
+	// checks). See plans/phases/phase-6-plugin-enforcement.md
 	// "Namespace" for the keyspace contract.
 	RedisURL = "BIFROST_PLUGIN_REDIS_URL"
 
@@ -134,7 +134,7 @@ const (
 	// and logs.db, so a container recreate keeps the log and the
 	// witness's stored head stays reachable. The tree is rebuilt from
 	// this file at boot. See
-	// gateway/plans/phases/phase-12-transparency-log.md "Persistence".
+	// plans/phases/phase-12-transparency-log.md "Persistence".
 	TlogPath = "BIFROST_PLUGIN_TLOG_PATH"
 
 	// Production, when truthy, forces the `Secure` attribute on the
@@ -156,7 +156,7 @@ const (
 	// Cypher HTTP API used by the agent catalog (graphclient). Note
 	// the 7474 HTTP port, NOT 7687 (bolt) — the gateway speaks the
 	// REST `/db/<db>/tx/commit` endpoint, not bolt, so it needs no
-	// driver. See gateway/plans/agent-catalog.md.
+	// driver. See plans/agent-catalog.md.
 	Neo4jHTTPURL = "NEO4J_HTTP_URL"
 
 	// Neo4jUser is the Basic-auth user for the neo4j HTTP API.

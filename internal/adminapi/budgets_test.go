@@ -11,8 +11,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/stakwork/stakgraph/gateway/internal/auth"
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
+	"github.com/stakwork/mothership/internal/auth"
+	"github.com/stakwork/mothership/internal/redisclient"
 )
 
 // newBudgetTestServer stands up an adminapi mux with a miniredis-backed

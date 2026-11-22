@@ -7,8 +7,8 @@ import (
 
 	"github.com/maximhq/bifrost/core/schemas"
 
-	"github.com/stakwork/stakgraph/gateway/internal/pluginctx"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/pluginctx"
+	"github.com/stakwork/mothership/internal/pluginlog"
 )
 
 // TransportPre is the body of HTTPTransportPreHook. It fires at the
@@ -31,7 +31,7 @@ import (
 //     is not retained). Skipped when req.Body is empty — bifrost's
 //     large-payload mode omits the copy — so the leaf then carries
 //     request_sha256: null. See
-//     gateway/plans/phases/phase-12-transparency-log.md "Leaf".
+//     plans/phases/phase-12-transparency-log.md "Leaf".
 //  5. Log a structured-ish single line for greppability.
 //
 // Future responsibilities (NOT here yet)
@@ -43,7 +43,7 @@ import (
 //
 // Cryptographic auth (macaroon verification) does NOT live here — it
 // lives in PreLLMHook, which is the canonical site for verified-
-// claims-aware logic per gateway/plans/phases/phase-6-plugin-enforcement.md.
+// claims-aware logic per plans/phases/phase-6-plugin-enforcement.md.
 // What we do here is extract the raw x-macaroon header and stash it
 // on context: PreLLMHook doesn't have direct HTTP access, so this is
 // the handoff point.

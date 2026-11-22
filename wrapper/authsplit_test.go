@@ -1,7 +1,7 @@
 // Tests for the bearer-concat → two-header transport split.
 //
 // These tests exhaustively cover the table in
-// gateway/plans/phases/phase-10-bearer-concat-transport.md §"Test
+// plans/phases/phase-10-bearer-concat-transport.md §"Test
 // surface" PLUS the backward-compatibility regression cases. They
 // run with plain `go test ./...` from this directory (no Bifrost,
 // no Docker, no Redis).
@@ -421,7 +421,7 @@ func TestRewriteAuthHeaders(t *testing.T) {
 //   - Or pick a different separator that's still outside both
 //     alphabets.
 //
-// See gateway/plans/phases/phase-10-bearer-concat-transport.md
+// See plans/phases/phase-10-bearer-concat-transport.md
 // §"Wire format" for the rationale.
 func TestRewriteAuthHeaders_AssumesVKShape(t *testing.T) {
 	// Representative VKs that have actually appeared. Add to this

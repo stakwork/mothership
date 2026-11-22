@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stakwork/stakgraph/gateway/internal/auth"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/auth"
+	"github.com/stakwork/mothership/internal/pluginlog"
 )
 
 // Revocation routes — the HTTP face of auth/admin.go's helpers.

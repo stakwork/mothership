@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stakwork/stakgraph/gateway/internal/env"
-	"github.com/stakwork/stakgraph/gateway/internal/graphclient"
+	"github.com/stakwork/mothership/internal/env"
+	"github.com/stakwork/mothership/internal/graphclient"
 )
 
 // Integration test against a live neo4j. Skipped unless RUN_NEO4J_TESTS

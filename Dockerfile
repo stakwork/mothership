@@ -14,7 +14,7 @@
 #      transitive dep (sonic, fasthttp, mcp-go, …) is at the exact version
 #      bifrost-http was built with — Go's plugin loader requires that.
 #   3. Build the wrapper binary that fronts both bifrost-http and the
-#      plugin's in-process HTTP server. See gateway/wrapper/main.go
+#      plugin's in-process HTTP server. See wrapper/main.go
 #      for the rationale. This is the container's entrypoint.
 #   4. Produce a minimal Alpine runtime image with all three artifacts.
 
@@ -56,12 +56,12 @@ RUN npm run build-enterprise
 # ---------------------------------------------------------------------------
 # Stage 1b: build the gateway plugin's admin UI (Preact + Vite).
 #
-# The compiled bundle is dropped into gateway/internal/adminapi/ui/dist
+# The compiled bundle is dropped into internal/adminapi/ui/dist
 # before the Go build below so `//go:embed all:ui/dist` picks it up at
 # compile time. Cached separately from the rest of the Go build so
 # changes to *.go files don't re-run `npm`.
 #
-# See gateway/plans/phases/phase-8-observability-dashboard.md.
+# See plans/phases/phase-8-observability-dashboard.md.
 # ---------------------------------------------------------------------------
 FROM node:${NODE_VERSION}-alpine3.23 AS plugin-ui-builder
 WORKDIR /pui
@@ -124,15 +124,15 @@ WORKDIR /plugin
 COPY go.mod ./
 COPY main.go ./
 COPY internal/ ./internal/
-# The pure-Go macaroon verifier lives under gateway/auth/go and is
-# imported by gateway/internal/auth as github.com/stakwork/stakgraph/
-# gateway/auth/go. Must be copied into the build context — without
+# The pure-Go macaroon verifier lives under auth/go and is
+# imported by internal/auth as github.com/stakwork/mothership/auth/go.
+# Must be copied into the build context — without
 # it, `go mod tidy` falls back to fetching the package from GOPROXY
 # (which only has tagged releases of the parent module) and fails.
 COPY auth/go/ ./auth/go/
 # Drop the compiled UI in place BEFORE `go build` so the
 # `//go:embed all:ui/dist` directive in
-# gateway/internal/adminapi/ui.go finds the real bundle, not the
+# internal/adminapi/ui.go finds the real bundle, not the
 # placeholder index.html that lives in the repo for offline dev
 # builds.
 COPY --from=plugin-ui-builder /pui/dist /plugin/internal/adminapi/ui/dist
@@ -152,7 +152,7 @@ RUN go mod edit -replace github.com/maximhq/bifrost/core=/src/core \
 # it: Bifrost plugins can't register arbitrary HTTP routes through
 # Bifrost's own router, and we want both the dashboard UI and the
 # plugin routes available on a single TLS-terminated host:port for
-# Traefik / k8s ingress. See gateway/wrapper/main.go for the full
+# Traefik / k8s ingress. See wrapper/main.go for the full
 # story.
 #
 # Pure stdlib Go — no CGO, no bifrost dep tree, no plugin loader
@@ -180,7 +180,7 @@ RUN CGO_ENABLED=0 GOOS=linux \
 #
 # The S3 side of log payload offload (BIFROST_LOGS_S3_*): the bucket
 # preflight at boot and the background upload of a logs.db that predates
-# offload. The wrapper runs it; see gateway/logarchive/main.go. Its own
+# offload. The wrapper runs it; see logarchive/main.go. Its own
 # module so the wrapper stays stdlib-only and the plugin's dependency set
 # (which must match bifrost-http's) is untouched. Its go.mod pins the AWS
 # SDK to the versions bifrost transports/v2.2.2 builds with. Static, no

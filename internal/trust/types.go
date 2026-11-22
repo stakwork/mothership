@@ -1,6 +1,6 @@
 // Package trust holds the gateway plugin's trust registry — the set
 // of orgs whose macaroons the plugin will verify. See
-// gateway/plans/phases/phase-5-trust-registry.md for the design.
+// plans/phases/phase-5-trust-registry.md for the design.
 //
 // File layout
 // -----------
@@ -8,7 +8,7 @@
 //   - registry.go   : in-memory state, mutators, lookup
 //   - persistence.go: atomic file IO, env-seed precedence
 //
-// The HTTP surface lives in gateway/internal/adminapi/trust.go and
+// The HTTP surface lives in internal/adminapi/trust.go and
 // only talks to *Registry through this package's exported API — the
 // admin layer never reaches into types directly so the wire shape
 // stays under our control.
@@ -78,7 +78,7 @@ type Org struct {
 // (empty for single-swarm deployments). When set, the plugin's
 // realm-membership check asserts macaroons with realm_budgets list
 // this swarm's RealmID as a permitted realm. See
-// gateway/plans/phases/phase-11-symmetric-recursive-authorization.md
+// plans/phases/phase-11-symmetric-recursive-authorization.md
 // for the multi-swarm model.
 type File struct {
 	Version      int        `json:"version"`

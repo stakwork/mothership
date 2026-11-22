@@ -39,10 +39,10 @@
 #
 # Usage
 # -----
-#   bash gateway/scripts/smoke-test-enforcement.sh
+#   bash scripts/smoke-test-enforcement.sh
 #
 # Required: the gateway must be up (`make docker-up`) AND
-# `gateway/auth/ts/node_modules` must be installed (`npm install`
+# `auth/ts/node_modules` must be installed (`npm install`
 # inside that dir; done as part of fixture regeneration too).
 #
 # Environment knobs
@@ -61,7 +61,7 @@ TOKEN="${BIFROST_PROVISIONING_TOKEN:-dev-provisioning-token}"
 ORG_ID="${ORG_ID:-org_smoke}"
 
 # Fixture org pubkey #0 — matches priv 0x…01 used by mint-macaroon.ts.
-# See gateway/auth/fixtures/keys.json. Hardcoded here (rather than
+# See auth/fixtures/keys.json. Hardcoded here (rather than
 # parsed from the file) so the script stays self-contained for ops
 # debugging in an unfamiliar checkout.
 ORG_PUBKEY="0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
@@ -69,8 +69,8 @@ ORG_PUBKEY="0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
 # Repo root, relative to this script. All paths below derived from
 # this so the script works regardless of cwd.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-TS_DIR="$REPO_ROOT/gateway/auth/ts"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TS_DIR="$REPO_ROOT/auth/ts"
 TSX="$TS_DIR/node_modules/.bin/tsx"
 
 # --- helpers ---------------------------------------------------------------
@@ -272,7 +272,7 @@ echo "  gateway reachable at $GW"
 
 if [ ! -x "$TSX" ]; then
   echo "  tsx not found at $TSX" >&2
-  echo "  install with: cd gateway/auth/ts && npm install" >&2
+  echo "  install with: cd auth/ts && npm install" >&2
   exit 1
 fi
 echo "  tsx available at $TSX"
@@ -337,14 +337,14 @@ sleep 3
 section "inspect plugin logs"
 echo "  Look for 'auth: verify ok mode=shadow ...' lines for this run:"
 echo
-echo "    docker compose -f gateway/docker-compose.yml logs --tail=200 bifrost \\"
+echo "    docker compose -f docker-compose.yml logs --tail=200 bifrost \\"
 echo "      | grep -E 'auth:|run_id=$RUN_ID'"
 echo
 # Best-effort inline grep if docker compose is on PATH and the
 # containers are running under the standard project name. Errors are
 # silenced so a missing compose CLI doesn't fail the script.
 if command -v docker >/dev/null 2>&1; then
-  docker compose -f "$REPO_ROOT/gateway/docker-compose.yml" logs --tail=200 bifrost 2>/dev/null \
+  docker compose -f "$REPO_ROOT/docker-compose.yml" logs --tail=200 bifrost 2>/dev/null \
     | grep -E "auth:|$RUN_ID" \
     | sed 's/^/    /' \
     || echo "    (no matching log lines — run the grep above manually)"
@@ -420,7 +420,7 @@ sleep 3
 
 echo
 echo "  Plugin verify line (claims from macaroon, NOT headers):"
-docker compose -f "$REPO_ROOT/gateway/docker-compose.yml" logs --tail=50 bifrost 2>/dev/null \
+docker compose -f "$REPO_ROOT/docker-compose.yml" logs --tail=50 bifrost 2>/dev/null \
   | grep -E "auth: verify .* run_id=$MISMATCH_RUN_ID" \
   | tail -1 \
   | sed 's/^/    /' \
@@ -469,7 +469,7 @@ if [ "$ASSERT_FAILED" -gt 0 ]; then
   echo "  $ASSERT_FAILED assertion(s) FAILED — see [FAIL] lines above."
   echo "  This is expected pre-fix: headers currently override macaroon claims"
   echo "  in logs.metadata. Apply the canonicalization fix in"
-  echo "  gateway/internal/hooks/llm_prehook.go and re-run."
+  echo "  internal/hooks/llm_prehook.go and re-run."
   exit 1
 fi
 

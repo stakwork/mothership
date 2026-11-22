@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"github.com/stakwork/stakgraph/gateway/internal/pricing"
+	"github.com/stakwork/mothership/internal/pricing"
 )
 
 // PriceCall converts one call's token usage into dollars. Returns

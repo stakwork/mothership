@@ -9,7 +9,7 @@
 //     for tygo to translate.
 //   - ApiError: the phase-7 error envelope is built inline by
 //     adminapi's writeError helper (a map, not a struct).
-//   - TrustOrg / TrustStatus: mirror gateway/internal/trust, a
+//   - TrustOrg / TrustStatus: mirror internal/trust, a
 //     package outside tygo.yaml's adminapi scope, re-named for the
 //     dashboard (trust.Org -> TrustOrg, trust.StatusResponse ->
 //     TrustStatus).
@@ -51,9 +51,9 @@ export interface ApiError {
   };
 }
 
-// ─── trust registry (gateway/internal/trust) ────────────────────────
+// ─── trust registry (internal/trust) ────────────────────────
 
-// Trust-registry Org entry — mirrors gateway/internal/trust.Org.
+// Trust-registry Org entry — mirrors internal/trust.Org.
 // Surfaced on the dashboard's Provenance card so an operator can
 // see which org's signature authorized a run, plus the pubkey /
 // issuer URL the plugin would verify against.
@@ -66,7 +66,7 @@ export interface TrustOrg {
   grace_until?: string;
 }
 
-// Trust-registry status — mirrors gateway/internal/trust.StatusResponse.
+// Trust-registry status — mirrors internal/trust.StatusResponse.
 // The Provenance card on RunDetail uses `realm_id` to show the
 // swarm's self-identity ("this run was processed by swarm w1"),
 // since phase 11 dropped the per-row realm-id metadata column.

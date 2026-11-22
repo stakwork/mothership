@@ -30,15 +30,15 @@
 # the local docker-compose); the log line tells us what the adapter
 # would have done in enforce mode. Promoting these checks to "block
 # the request and assert HTTP status" is a one-line flip of
-# enforce_macaroons in gateway/data/config.json, or start the gateway
+# enforce_macaroons in data/config.json, or start the gateway
 # with BIFROST_PLUGIN_ENFORCE_MACAROONS=true).
 #
 # Usage
 # -----
-#   bash gateway/scripts/smoke-test-phase-11.sh
+#   bash scripts/smoke-test-phase-11.sh
 #
 # Required: the gateway must be up (`make docker-up`) AND
-# `gateway/auth/ts/node_modules` must be installed (`npm install`
+# `auth/ts/node_modules` must be installed (`npm install`
 # inside that dir).
 #
 # Environment knobs
@@ -56,14 +56,14 @@ TOKEN="${BIFROST_PROVISIONING_TOKEN:-dev-provisioning-token}"
 ORG_ID="${ORG_ID:-org_p11}"
 
 # Fixture org pubkey #0 — matches priv 0x…01 used by mint-macaroon.ts.
-# See gateway/auth/fixtures/keys.json.
+# See auth/fixtures/keys.json.
 ORG_PUBKEY="0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-TS_DIR="$REPO_ROOT/gateway/auth/ts"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TS_DIR="$REPO_ROOT/auth/ts"
 TSX="$TS_DIR/node_modules/.bin/tsx"
-COMPOSE_FILE="$REPO_ROOT/gateway/docker-compose.yml"
+COMPOSE_FILE="$REPO_ROOT/docker-compose.yml"
 
 ASSERT_FAILED=0
 
@@ -172,7 +172,7 @@ echo "  gateway reachable at $GW"
 
 if [ ! -x "$TSX" ]; then
   echo "  tsx not found at $TSX" >&2
-  echo "  install with: cd gateway/auth/ts && npm install" >&2
+  echo "  install with: cd auth/ts && npm install" >&2
   exit 1
 fi
 echo "  tsx available"
@@ -311,7 +311,7 @@ expect_contains "swarm-id only: empty permitted_realms" "permitted_realms=[]" "$
 # We don't have an attenuator binary in the tree, so this section just
 # rounds-out coverage by minting a multi-realm macaroon that partially
 # overlaps with the swarm's realm_id and confirming the verifier
-# accepts it. The unit tests in gateway/auth/{go,ts}/ cover the
+# accepts it. The unit tests in auth/{go,ts}/ cover the
 # attenuation HMAC path byte-for-byte against fixtures
 # 02-one-attenuation, 03-two-attenuations, 07-cross-realm-attenuation.
 

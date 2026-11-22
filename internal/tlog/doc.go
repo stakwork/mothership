@@ -1,7 +1,7 @@
 // Package tlog is the gateway's transparency log: an append-only
 // Merkle log with one leaf per accounted LLM call, persisted as JSONL
 // on the data volume and served to an external witness as a signed
-// tree head. See gateway/plans/phases/phase-12-transparency-log.md.
+// tree head. See plans/phases/phase-12-transparency-log.md.
 //
 // What lives here
 // ---------------

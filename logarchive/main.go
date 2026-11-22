@@ -1,5 +1,5 @@
 // Command logs-archive is the gateway image's S3 helper for log payload
-// offload (BIFROST_LOGS_S3_*). The wrapper (gateway/wrapper) runs it; it
+// offload (BIFROST_LOGS_S3_*). The wrapper (wrapper) runs it; it
 // is not an entrypoint of its own.
 //
 //	logs-archive preflight -bucket B -prefix P [-region R] [-endpoint E]

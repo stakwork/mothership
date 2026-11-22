@@ -22,7 +22,7 @@ package main
 //     only after a verified upload. A failure keeps it and is retried
 //     later in this boot and on the next one.
 //
-// The S3 work runs in a separate binary (gateway/logarchive) so the
+// The S3 work runs in a separate binary (logarchive) so the
 // wrapper stays stdlib-only and static.
 
 import (

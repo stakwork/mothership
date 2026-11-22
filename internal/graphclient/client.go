@@ -14,7 +14,7 @@
 //
 // Only the gateway holds the neo4j credential and owns the upsert;
 // catalog sources POST manifests to the gateway, never to neo4j
-// directly (see gateway/plans/agent-catalog.md).
+// directly (see plans/agent-catalog.md).
 package graphclient
 
 import (
@@ -28,7 +28,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stakwork/stakgraph/gateway/internal/env"
+	"github.com/stakwork/mothership/internal/env"
 )
 
 // requestTimeout caps a single tx/commit round-trip. Catalog writes

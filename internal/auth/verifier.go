@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
-	"github.com/stakwork/stakgraph/gateway/internal/trust"
+	macaroon "github.com/stakwork/mothership/auth/go"
+	"github.com/stakwork/mothership/internal/trust"
 )
 
 // HeaderName is the canonical HTTP header carrying the wire-format

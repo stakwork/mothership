@@ -366,7 +366,7 @@ const PROVIDER_ICON_META: Record<
 //
 // Keyed by the Bifrost-reported provider id (the value of
 // `l.Provider` on every log row, matching the keys in
-// `gateway/data/config.json`'s `providers` map). Canvas.tsx reads
+// `data/config.json`'s `providers` map). Canvas.tsx reads
 // this when building provider nodes and when looking up the display
 // name for a row's `providers[*].provider` slice.
 // ---------------------------------------------------------------------------

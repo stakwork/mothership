@@ -1,6 +1,6 @@
 // Package auth is the gateway plugin's Bifrost-side adapter for
 // macaroon verification. It glues the pure cryptographic verifier in
-// gateway/auth/go (no I/O, no Bifrost types) onto the request
+// auth/go (no I/O, no Bifrost types) onto the request
 // lifecycle: extract the x-macaroon header, look up the issuing org's
 // policy in the in-memory trust registry, run macaroon.Verify, layer
 // Redis-backed revocation on top, and stamp ctx.VerifiedClaims for
@@ -68,7 +68,7 @@
 // unparseable value is logged at ERROR and ignored, because a plugin
 // that fails Init leaves bifrost-http serving with no verification at
 // all — see Init). See
-// gateway/plans/phases/phase-4-macaroon-shape.md ("Verifier
+// plans/phases/phase-4-macaroon-shape.md ("Verifier
 // algorithm → Bifrost-plugin adapter").
 //
 // Observability mode

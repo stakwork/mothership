@@ -7,15 +7,15 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
-	"github.com/stakwork/stakgraph/gateway/internal/duration"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
+	macaroon "github.com/stakwork/mothership/auth/go"
+	"github.com/stakwork/mothership/internal/duration"
+	"github.com/stakwork/mothership/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/redisclient"
 )
 
 // Redis key sub-paths for the phase-6 accumulators (the bifrost:
 // prefix is added by redisclient.Key). Shapes per
-// gateway/plans/phases/phase-6-plugin-enforcement.md "Redis schema".
+// plans/phases/phase-6-plugin-enforcement.md "Redis schema".
 const (
 	costRunPrefix   = "cost:run:"   // HASH { total: float }
 	stepsRunPrefix  = "steps:run:"  // HASH { total: int }

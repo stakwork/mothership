@@ -1,6 +1,6 @@
 package macaroon
 
-// Layer-level signers — Go mirror of gateway/auth/ts/src/sign.ts.
+// Layer-level signers — Go mirror of auth/ts/src/sign.ts.
 //
 // Phase 1 custodial mode: the issuer (Hive today, or a standalone
 // reference issuer in Go) holds both org and user private keys and

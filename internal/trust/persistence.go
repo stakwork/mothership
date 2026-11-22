@@ -9,8 +9,8 @@ import (
 	"reflect"
 	"sort"
 
-	"github.com/stakwork/stakgraph/gateway/internal/env"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/env"
+	"github.com/stakwork/mothership/internal/pluginlog"
 )
 
 // Reconcile modes — keep these as typed constants so the validate

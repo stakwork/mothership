@@ -4,9 +4,9 @@ The cryptographic identity layer for the gateway's macaroon-based LLM
 governance. Three sibling implementations that all agree byte-for-byte:
 
 ```
-gateway/auth/
+auth/
 ├── fixtures/   ← source-of-truth test vectors (JSON; language-neutral)
-├── go/         ← pure verifier (used by gateway/internal/auth/ adapter)
+├── go/         ← pure verifier (used by internal/auth/ adapter)
 └── ts/         ← signer + attenuator + verifier (published as `gatekey` on npm)
 ```
 
@@ -98,7 +98,7 @@ Pure verifier. No I/O, no Bifrost types, no ambient state. Public API:
 auth.Verify(macaroonB64 string, policy Policy, now time.Time) (*Claims, error)
 ```
 
-Consumed by the Bifrost-plugin adapter at `gateway/internal/auth/`,
+Consumed by the Bifrost-plugin adapter at `internal/auth/`,
 which adds header extraction, trust-registry lookup, Redis-backed
 revocation checks, and `bifrost.Error` shaping. The adapter holds no
 cryptographic knowledge.
@@ -111,7 +111,7 @@ Consumed by:
 
 - Hive's `/macaroons/issue` handler — signs `user_authorization`
   (custodial phase 1) and `invocation` layers.
-- `gateway/mcp` and any other in-repo TS consumer — same package, via
+- stakgraph's `mcp` and any other TS consumer — same package, via
   workspace path during development.
 - Agent processes that need to attenuate before spawning sub-agents
   — same package, same API.
@@ -132,7 +132,7 @@ CI in this repo runs both:
 
 ```
 go test ./gateway/auth/go/...
-cd gateway/auth/ts && npm test
+cd auth/ts && npm test
 ```
 
 Both load the same `fixtures/*.json` and assert every `expected.*`

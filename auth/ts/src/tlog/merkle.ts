@@ -9,7 +9,7 @@
  *
  * The two verifiers are transcriptions of §2.1.3.2 (inclusion) and
  * §2.1.4.2 (consistency). Pure functions, no I/O. Pinned against the
- * Go producer by `gateway/auth/fixtures/tlog-*.json`, which the Go
+ * Go producer by `auth/fixtures/tlog-*.json`, which the Go
  * side in turn pins to the reference implementation's vectors.
  */
 

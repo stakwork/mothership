@@ -5,14 +5,14 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/stakwork/stakgraph/gateway/internal/auth"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/auth"
+	"github.com/stakwork/mothership/internal/pluginlog"
 )
 
 // Phase-6 hot-state routes: kill switches and Redis snapshots for
 // runs and agents. Thin wrappers over auth.KillRun / auth.GetRunState
 // et al. — every decision about keys, TTLs and what "killed" means
-// lives in gateway/internal/auth/kill.go; this file only parses the
+// lives in internal/auth/kill.go; this file only parses the
 // URL, picks by method, and shapes the JSON.
 //
 //	POST   /_plugin/runs/:id/kill      → 200 KillRunResponse

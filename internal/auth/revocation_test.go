@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
+	macaroon "github.com/stakwork/mothership/auth/go"
+	"github.com/stakwork/mothership/internal/redisclient"
 )
 
 func TestCheckRevocations_ObservabilityMode_NoOp(t *testing.T) {

@@ -1,6 +1,6 @@
 # tygo configuration: Go -> TypeScript struct codegen for the
 # gateway's admin API. The output drives the SPA's typed fetch
-# layer (gateway/internal/adminapi/ui/src/api/types.ts).
+# layer (internal/adminapi/ui/src/api/types.ts).
 #
 # Usage:
 #   make tygo            (runs `tygo generate`)
@@ -9,7 +9,7 @@
 #                         silently 500 the dashboard otherwise)
 #
 # Source-of-truth: every type the SPA decodes is declared in
-# gateway/internal/adminapi/ as an exported Go struct with `json:`
+# internal/adminapi/ as an exported Go struct with `json:`
 # tags. tygo translates those into TS interfaces; no hand-editing
 # of types.ts. Types with no adminapi Go struct behind them
 # (string-literal unions, the trust-package mirrors, Bifrost
@@ -22,13 +22,13 @@
 #   go install github.com/gzuidhof/tygo@v0.2.21
 
 packages:
-  - path: "github.com/stakwork/stakgraph/gateway/internal/adminapi"
+  - path: "github.com/stakwork/mothership/internal/adminapi"
     output_path: "internal/adminapi/ui/src/api/types.ts"
     # frontmatter follows tygo's own "Code generated … DO NOT EDIT"
     # banner, so editors / reviewers know not to hand-edit.
     frontmatter: |
       //
-      // Source: github.com/stakwork/stakgraph/gateway/internal/adminapi
+      // Source: github.com/stakwork/mothership/internal/adminapi
       // Regenerate with `make tygo`; CI enforces via `make tygo-check`.
       // Hand-maintained companions (unions, trust mirrors, Bifrost
       // pass-through shapes) live in manual.ts.

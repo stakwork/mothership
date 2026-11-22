@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stakwork/stakgraph/gateway/internal/env"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
-	"github.com/stakwork/stakgraph/gateway/internal/sessions"
+	"github.com/stakwork/mothership/internal/env"
+	"github.com/stakwork/mothership/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/sessions"
 )
 
 // sessionCookieName is the cookie key the SPA reads/writes. Scoped to

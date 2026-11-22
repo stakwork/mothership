@@ -33,12 +33,12 @@
 #
 # Required:
 #   - `make docker-up` already run
-#   - `gateway/auth/ts/node_modules` populated (`npm install`)
+#   - `auth/ts/node_modules` populated (`npm install`)
 #   - ANTHROPIC_API_KEY set in the gateway's env (compose passes
 #     through from the host .env)
 #
 # Usage:
-#   bash gateway/scripts/smoke-test-concat.sh
+#   bash scripts/smoke-test-concat.sh
 #
 # Environment knobs:
 #   GW                          gateway URL (default http://localhost:8181)
@@ -73,8 +73,8 @@ VK="${BIFROST_VK:-sk-bf-smoke-placeholder-vk}"
 ORG_PUBKEY="0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-TS_DIR="$REPO_ROOT/gateway/auth/ts"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TS_DIR="$REPO_ROOT/auth/ts"
 TSX="$TS_DIR/node_modules/.bin/tsx"
 
 ASSERT_FAILED=0
@@ -198,7 +198,7 @@ expect_eq() {
 assert_verify_log_present() {
   local run_id="$1"
   local hit
-  hit=$(docker compose -f "$REPO_ROOT/gateway/docker-compose.yml" \
+  hit=$(docker compose -f "$REPO_ROOT/docker-compose.yml" \
         logs --tail=500 bifrost 2>/dev/null \
     | grep -E "auth: verify .* run_id=$run_id" \
     | tail -1)
@@ -226,7 +226,7 @@ echo "  gateway reachable at $GW"
 
 if [ ! -x "$TSX" ]; then
   echo "  tsx not found at $TSX" >&2
-  echo "  install with: cd gateway/auth/ts && npm install" >&2
+  echo "  install with: cd auth/ts && npm install" >&2
   exit 1
 fi
 echo "  tsx available"

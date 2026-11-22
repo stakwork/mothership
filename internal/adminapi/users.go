@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stakwork/stakgraph/gateway/internal/auth"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/auth"
+	"github.com/stakwork/mothership/internal/pluginlog"
 )
 
 // UserAgentUsage is one row in `UserDetailResponse.AgentsUsed` —

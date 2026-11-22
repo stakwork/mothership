@@ -1,5 +1,5 @@
 {
-  "description": "RFC 9162 §2.1 (RFC 6962) Merkle tree vectors over the eight classic Certificate Transparency test leaves: leaf hashes, roots at every size 0..8, every inclusion proof, every consistency proof (old_size 0 included: the empty tree is extended by every tree with an empty proof). Values are pinned to the transparency-dev/merkle reference implementation by gateway/internal/tlog/merkle_test.go.",
+  "description": "RFC 9162 §2.1 (RFC 6962) Merkle tree vectors over the eight classic Certificate Transparency test leaves: leaf hashes, roots at every size 0..8, every inclusion proof, every consistency proof (old_size 0 included: the empty tree is extended by every tree with an empty proof). Values are pinned to the transparency-dev/merkle reference implementation by internal/tlog/merkle_test.go.",
   "inputs": {
     "leaves_hex": [
       "",

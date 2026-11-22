@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stakwork/stakgraph/gateway/internal/graphclient"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/graphclient"
+	"github.com/stakwork/mothership/internal/pluginlog"
 )
 
 // ─── wire shapes: write (POST /_plugin/agents) ───────────────────────
@@ -21,7 +21,7 @@ import (
 // "Whole fleet object" (not one-agent-per-call) because a source
 // typically knows its entire fleet at once and one call per deploy is
 // simpler to operate. A source that only knows one agent sends a
-// one-element Agents slice. See gateway/plans/agent-catalog.md.
+// one-element Agents slice. See plans/agent-catalog.md.
 type catalogPushRequest struct {
 	Source string             `json:"source"` // REQUIRED contributing system
 	Agents []catalogPushAgent `json:"agents"`

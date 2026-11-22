@@ -17,7 +17,7 @@ package graphclient
 //
 // This is the one place label/edge names are defined — every Cypher
 // string in this package interpolates these constants so a rename is a
-// single-edit affair. See gateway/plans/agent-catalog.md "Data model".
+// single-edit affair. See plans/agent-catalog.md "Data model".
 const (
 	LabelAgent  = "HiveAgent"
 	LabelPrompt = "Prompt" // shared node authored elsewhere; linked, not owned

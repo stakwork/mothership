@@ -5,7 +5,7 @@
 // pinned to the versions bifrost transports/v2.2.2 builds with
 // (framework/go.mod), so credentials, endpoints and signing resolve the
 // way Bifrost's own object store does.
-module github.com/stakwork/stakgraph/gateway/logarchive
+module github.com/stakwork/mothership/logarchive
 
 go 1.24
 

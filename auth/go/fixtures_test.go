@@ -2,7 +2,7 @@ package macaroon_test
 
 // Cross-language byte-equivalence test (Go side).
 //
-// Loads every gateway/auth/fixtures/*.json, asserts that this Go
+// Loads every auth/fixtures/*.json, asserts that this Go
 // package reproduces every deterministic intermediate value the TS
 // package recorded, and verifies the assembled macaroon end-to-end.
 //
@@ -31,7 +31,7 @@ import (
 	"testing"
 	"time"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
+	macaroon "github.com/stakwork/mothership/auth/go"
 )
 
 const fixturesRelPath = "../fixtures"

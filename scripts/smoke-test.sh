@@ -22,7 +22,7 @@
 # Hard ceiling: < $0.02 of real spend (cheap models, max_tokens=20).
 #
 # Usage:
-#   bash gateway/scripts/smoke-test.sh
+#   bash scripts/smoke-test.sh
 #
 # After the script completes, inspect rows with:
 #   docker run --rm -v stakgraph-gateway-data:/data alpine:3.23 \

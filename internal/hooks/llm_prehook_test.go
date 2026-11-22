@@ -7,8 +7,8 @@ import (
 
 	"github.com/maximhq/bifrost/core/schemas"
 
-	"github.com/stakwork/stakgraph/gateway/internal/auth"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginctx"
+	"github.com/stakwork/mothership/internal/auth"
+	"github.com/stakwork/mothership/internal/pluginctx"
 )
 
 // enforcingCtxWithoutMacaroon models the worst case for a caller that

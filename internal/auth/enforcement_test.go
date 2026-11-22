@@ -7,8 +7,8 @@ import (
 
 	"github.com/maximhq/bifrost/core/schemas"
 
-	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
-	"github.com/stakwork/stakgraph/gateway/internal/pluginctx"
+	macaroon "github.com/stakwork/mothership/auth/go"
+	"github.com/stakwork/mothership/internal/pluginctx"
 )
 
 func newBifrostCtx() *schemas.BifrostContext {

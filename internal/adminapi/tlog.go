@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
-	"github.com/stakwork/stakgraph/gateway/internal/tlog"
+	"github.com/stakwork/mothership/internal/pluginlog"
+	"github.com/stakwork/mothership/internal/tlog"
 )
 
 // Transparency-log routes (phase 12, Part 1):
@@ -23,7 +23,7 @@ import (
 // 0 when absent. The handler fsyncs the leaf file before signing
 // (inside tlog.Page), so a head the witness countersigns is never
 // ahead of the disk after a crash. See
-// gateway/plans/phases/phase-12-transparency-log.md "Witness API".
+// plans/phases/phase-12-transparency-log.md "Witness API".
 //
 // /status is cookie-or-bearer: the dashboard card's read. It carries
 // only what the gateway can attest about itself — size, root, the

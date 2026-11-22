@@ -145,7 +145,7 @@ Every signed layer (UA, invocation, attenuation) shares the same
 shape — a flat `agents` set plus an optional `budget` — and phase
 11's symmetric `narrow(parent, child)` rule applies at every
 boundary. See
-[`phase-11-symmetric-recursive-authorization.md`](https://github.com/stakwork/stakgraph/blob/main/gateway/plans/phases/phase-11-symmetric-recursive-authorization.md)
+[`phase-11-symmetric-recursive-authorization.md`](https://github.com/stakwork/mothership/blob/main/plans/phases/phase-11-symmetric-recursive-authorization.md)
 for the protocol; the `agents[]` axis flips direction at the
 UA→invocation boundary (subset) versus the attenuation boundaries
 (lineage extension).
@@ -183,7 +183,7 @@ leaves since the last one at `GET /_plugin/tlog/sth?since=N`; a
 witness outside the swarm (Hive) verifies and countersigns it. Once a
 head is witnessed, nothing below it can be edited or dropped without
 the recomputed root disagreeing. Spec:
-`gateway/plans/phases/phase-12-transparency-log.md`.
+`plans/phases/phase-12-transparency-log.md`.
 
 The witness check, end to end:
 
@@ -249,10 +249,10 @@ are RFC 3339 UTC strings. Canonical JSON is RFC 8785 (JCS).
 ## Cross-language
 
 A Go verifier exists in the same source repository
-([`stakgraph/gateway/auth/go/`](https://github.com/stakwork/stakgraph/tree/main/gateway/auth/go))
+([`mothership/auth/go/`](https://github.com/stakwork/mothership/tree/main/auth/go))
 and shares the test fixtures, so byte-equivalence is enforced in CI.
 For the transparency log the roles flip: the Go gateway is the
-producer and generates `gateway/auth/fixtures/tlog-*.json`
+producer and generates `auth/fixtures/tlog-*.json`
 (`go test ./internal/tlog -update`), and this package's test checks
 them byte-for-byte.
 Sub-agent attenuation only requires HMAC-SHA256 + JCS + hex encoding —

@@ -106,7 +106,7 @@ then the Go build stage drops the compiled bundle in place:
 COPY --from=plugin-ui-builder /pui/dist /plugin/internal/adminapi/ui/dist
 ```
 
-so that `//go:embed all:ui/dist` in `gateway/internal/adminapi/ui.go`
+so that `//go:embed all:ui/dist` in `internal/adminapi/ui.go`
 picks it up at compile time. The runtime image has no Node.
 
 For a local non-Docker build:
@@ -231,7 +231,7 @@ design.
 
 ## When adding a new page
 
-1. Define the Go response struct in `gateway/internal/adminapi/`
+1. Define the Go response struct in `internal/adminapi/`
    (or extend an existing one). Exported, named, `json:` tags — tygo
    only emits what it can see.
 2. Run `make tygo` from `gateway/` and commit the regenerated

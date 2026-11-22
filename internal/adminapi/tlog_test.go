@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stakwork/stakgraph/gateway/internal/tlog"
+	"github.com/stakwork/mothership/internal/tlog"
 )
 
 func openTestTlog(t *testing.T) *tlog.Log {

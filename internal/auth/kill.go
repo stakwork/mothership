@@ -10,14 +10,14 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/stakwork/stakgraph/gateway/internal/duration"
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
+	"github.com/stakwork/mothership/internal/duration"
+	"github.com/stakwork/mothership/internal/redisclient"
 )
 
 // Kill-switch and hot-state helpers — the phase-6 admin primitives
 // (`KillRun`, `UnkillRun`, `KillAgent`, `UnkillAgent`, `RunState`,
 // `AgentState`). Pure Redis logic, no HTTP; the routes that expose
-// them live in gateway/internal/adminapi (runs.go / agents.go).
+// them live in internal/adminapi (runs.go / agents.go).
 //
 // A kill does not invalidate the macaroon — it's an operator saying
 // "stop this now". The hot path (CheckRevocations) turns a set kill

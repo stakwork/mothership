@@ -9,13 +9,13 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
+	"github.com/stakwork/mothership/internal/redisclient"
 )
 
 // Admin-side helpers for managing revocation state. The HTTP routes
 // that expose these (`/_plugin/revoke/nonce/:nonce`,
 // `/_plugin/revoke/user/:user_id`, `/_plugin/revoke/users`) live in
-// gateway/internal/adminapi (revoke.go) and call into this file. The
+// internal/adminapi (revoke.go) and call into this file. The
 // kill-switch and per-run / per-agent state primitives live next door
 // in kill.go.
 //
@@ -32,7 +32,7 @@ import (
 //     fresh authorization. Per swarm, like the other two.
 //
 // Every helper is a thin wrapper around the redis ops described in
-// gateway/plans/phases/phase-6-plugin-enforcement.md "Redis schema".
+// plans/phases/phase-6-plugin-enforcement.md "Redis schema".
 
 // revokeUsersIndexKey is the ZSET that lists every user with a cutoff
 // set: member = user_id, score = cutoff as unix seconds. Maintained by

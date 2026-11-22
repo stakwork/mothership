@@ -1,6 +1,6 @@
 /**
  * `gatekey` — three-layer macaroon for cryptographic LLM governance.
- * Spec: `gateway/plans/phases/phase-4-macaroon-shape.md`.
+ * Spec: `plans/phases/phase-4-macaroon-shape.md`.
  */
 
 export type {
