@@ -104,8 +104,11 @@ const (
 	// readinessTimeout is how long we wait for bifrost-http to become
 	// reachable before giving up and exiting. Generous because Bifrost
 	// initialises SQLite, runs migrations, and loads our .so on first
-	// boot.
-	readinessTimeout = 60 * time.Second
+	// boot, and the first boot on a new Bifrost version can migrate a
+	// large logs.db for minutes (v2.3.0 rebuilds its indexes). Exiting
+	// mid-migration would restart it from scratch in a loop. A
+	// bifrost-http that dies is still noticed at once (childDone).
+	readinessTimeout = 10 * time.Minute
 
 	// readinessInterval is the poll interval used while waiting for
 	// upstreams to come up.

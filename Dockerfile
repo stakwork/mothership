@@ -21,9 +21,9 @@
 # Bifrost releases per-component tags (e.g. transports/v1.5.2, core/v1.5.8).
 # We pin the transports tag because that's what produces bifrost-http; the
 # core version comes along via go.work / replace directives in the tree.
-ARG GO_VERSION=1.27.0
+ARG GO_VERSION=1.27.4
 ARG NODE_VERSION=25
-ARG BIFROST_VERSION=transports/v2.2.2
+ARG BIFROST_VERSION=transports/v2.6.0
 
 # ---------------------------------------------------------------------------
 # Stage 0: clone bifrost source once and share via subsequent stages.
@@ -51,7 +51,11 @@ COPY --from=source /src/ui/ ./
 # `build-enterprise` is upstream's prod build script — it outputs to ./out
 # (Next.js static export). We then move ./out into the place bifrost-http
 # expects to embed.
-RUN npm run build-enterprise
+#
+# Since v2.6.0 it also type-checks the whole dashboard (`tsc --noEmit`),
+# which needs more than the ~2 GB heap Node picks on a smaller builder
+# (an 8 GB Docker VM ran out). 4 GB fits the GitHub runners (16 GB).
+RUN NODE_OPTIONS=--max-old-space-size=4096 npm run build-enterprise
 
 # ---------------------------------------------------------------------------
 # Stage 1b: build the gateway plugin's admin UI (Preact + Vite).
@@ -269,7 +273,10 @@ VOLUME ["/app/data"]
 # `wget -O- > /dev/null` does a GET (not HEAD). `wget --spider` issues
 # HEAD which bifrost-http rejects with 405 → unhealthy container →
 # traefik filters it out → no routing.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+# 120 s to start: the first boot on a new Bifrost version migrates
+# config.db and logs.db before it answers, and v2.3.0 rebuilds the logs
+# indexes on SQLite at startup, which takes a while on a large logs.db.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
     CMD wget -q -O- http://127.0.0.1:8181/health > /dev/null || exit 1
 
 ENTRYPOINT ["/sbin/tini", "--"]

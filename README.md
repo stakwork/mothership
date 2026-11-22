@@ -34,7 +34,7 @@ expects.
 mothership/
 ├── main.go            # plugin entry points (Init, GetName, Cleanup, *Hook)
 │                      #   one-line delegations into internal/ — auditable at a glance
-├── go.mod             # pinned: bifrost/core v1.5.10, Go 1.26.2
+├── go.mod             # pinned: bifrost/core v1.16.0 + mcp-go fork replace, Go 1.27.4
 ├── Makefile           # local + docker + UI build targets
 ├── Dockerfile         # bifrost-http + plugin .so + wrapper + admin UI, all in one image
 ├── docker-compose.yml # host 8181 -> container 8181, named volume for /app/data
@@ -90,7 +90,7 @@ as the dashboard, with one TLS terminator at the swarm/ingress edge.
 
 The upstream `maximhq/bifrost:latest` is statically linked and **cannot
 load `.so` plugins** ([docs](https://docs.getbifrost.ai/plugins/building-dynamic-binary)).
-The `Dockerfile` here clones `bifrost` at a pinned tag (`transports/v2.2.2`, the Dockerfile's `BIFROST_VERSION`),
+The `Dockerfile` here clones `bifrost` at a pinned tag (`transports/v2.6.0`, the Dockerfile's `BIFROST_VERSION`),
 builds `bifrost-http` with CGO + dynamic linking, builds our plugin
 against the same source tree (avoiding the "plugin was built with a
 different version of package" trap), builds the (stdlib-only) wrapper
@@ -286,7 +286,7 @@ make docker-build
 cd auth/ts && npm install && node --import tsx ../../scripts/custom-provider-e2e.ts
 ```
 
-What it shows, on bifrost `transports/v2.2.2`:
+What it shows, on bifrost `transports/v2.2.2` and again on `transports/v2.6.0`:
 
 - **A custom provider takes two calls.** First `POST /api/providers` with
   `network_config` (`base_url`, plus `allow_private_network` for an address
@@ -343,6 +343,11 @@ wrapper turns on Bifrost's hybrid log store
 "Object Storage for Logs"): it adds a `logs_store` block to the
 `config.json` it writes at boot (`wrapper/logsoffload.go`). Unset, the
 written `config.json` is the seed byte for byte and nothing changes.
+
+Since Bifrost v2.6.0 a failed call's `error_details` stays in `logs.db`
+with offload on, because the dashboard's error breakdowns and filters query
+that column; only provider raw bodies inside it go to the bucket. Before,
+it was offloaded with the rest of the payload.
 
 | Variable                            | Meaning                                                                                                   |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------- |
@@ -483,6 +488,38 @@ upstream (no provider keys, no spend):
 make docker-build
 scripts/logs-s3-e2e.sh
 ```
+
+## Upgrading Bifrost
+
+`BIFROST_VERSION` (Makefile, Dockerfile), the `core` version and the
+`mcp-go` replace in `go.mod`, and `GO_VERSION` move together: the plugin
+loader refuses a `.so` built from different sources or a different Go than
+bifrost-http. Take all three from `transports/go.mod` at the new tag.
+
+**Back up the data volume first.** Bifrost migrates `config.db` and
+`logs.db` on the first boot of a new version, and several migrations
+between v2.2.2 and v2.6.0 cannot be undone by starting the old image (for
+example `move_config_json_vk_limits_to_model_configs`, and v2.5.0's
+`add_anthropic_workload_identity_column`); a rollback is the old image plus
+the backup. v2.3.0 also rebuilds the `logs` indexes at startup on SQLite,
+which takes a while on a large `logs.db`: the wrapper waits up to 10
+minutes for bifrost-http, and the image's health check allows 120 s to
+start.
+
+```bash
+docker compose stop bifrost
+docker run --rm -v stakgraph-gateway-data:/data -v "$PWD":/backup alpine \
+  tar czf /backup/gateway-data-$(date +%F).tgz -C /data .
+```
+
+**Compat defaults.** Since v2.2.6/v2.3.0 Bifrost's compat layer lowers a
+`max_tokens` above the catalog's limit (`should_convert_params`) and sends
+chat calls with tools to the Responses API for some reasoning models
+(`force_reasoning_only_models_to_responses`), both on by default. The seed
+`config.json` pins both off, the v2.2.x behaviour. The `client` section is
+reconciled by hash, so a changed seed wins on the next boot, and a
+dashboard edit survives until the seed changes. (Found while upgrading to
+v2.5.1 in stakwork/stakgraph#1865.)
 
 ## Local plugin build (without docker)
 
