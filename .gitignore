@@ -25,3 +25,14 @@ internal/adminapi/ui/dist/*
 
 # Local overrides.
 .env
+
+# Carried over from stakgraph's root .gitignore, which used to cover this
+# tree: OS/editor noise, any node_modules, sqlite files, and npm lockfiles
+# except the admin SPA's (its image build runs `npm ci` from it, so local,
+# CI and the release image all install the same tree).
+.DS_Store
+.vscode
+node_modules/
+*.db
+package-lock.json
+!internal/adminapi/ui/package-lock.json
