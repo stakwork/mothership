@@ -20,13 +20,12 @@ const (
 	costRunPrefix   = "cost:run:"   // HASH { total: float }
 	stepsRunPrefix  = "steps:run:"  // HASH { total: int }
 	toolsRunPrefix  = "tools:run:"  // LIST, capped at toolHistoryLen
-	costUAPrefix    = "cost:ua:"    // HASH { total: float }
 	costAgentPrefix = "cost:agent:" // HASH { total: float }, key + ":" + bucket
 
 	// metaRunPrefix + <run_id> is the run's static shape as the
 	// macaroon chain declared it: the caps the cap walk compares
 	// against, the layer's expiry, and the parent run (the next
-	// layer outward, "" for the invocation). Written alongside the
+	// layer outward, "" for block 0). Written alongside the
 	// accumulators so the operator UI can render "spent $X of $Y" and
 	// walk ancestors without a macaroon in hand (phase 9 "cap
 	// meters"). `agent` / `user` are only stamped by the run's own
@@ -57,10 +56,10 @@ const toolHistoryLen = 10
 // chain and issues one pipelined Redis round-trip:
 //
 //   - HINCRBYFLOAT cost:run:<r> / HINCRBY steps:run:<r> + EXPIRE,
-//     for every distinct run_id in the chain (leaf + ancestors) —
-//     killing or capping a parent must see descendant spend.
-//   - HINCRBYFLOAT cost:ua:<ua.nonce> + EXPIRE, only when the UA
-//     carried a cumulative budget (phase-4 "budget envelope").
+//     for every distinct run_id in the chain (leaf + ancestors, block
+//     0 included) — killing or capping a parent must see descendant
+//     spend, and block 0's counter is the person's total under their
+//     grant (phase 13; v1 kept that in a separate cost:ua key).
 //   - HINCRBYFLOAT cost:agent:<agent>:<bucket> + EXPIRE, only when
 //     the leaf agent has a configured windowed budget.
 //   - LPUSH/LTRIM tools:run:<leaf> + EXPIRE when the response
@@ -148,7 +147,7 @@ func accumulate(
 	// records its agent and user, which is what the per-user run
 	// index and the quota view key on.
 	layers := chainLayers(claims)
-	leafTTL := runKeyTTL(parseRFC3339(claims.EffectiveCaveats.Exp), now)
+	leafTTL := runKeyTTL(parseRFC3339(claims.Exp), now)
 	parent := ""
 	for i, layer := range layers {
 		ttl := runKeyTTL(parseRFC3339(layer.Exp), now)
@@ -189,26 +188,6 @@ func accumulate(
 		pipe.Expire(ctx, userKey, runsUserTTL)
 	}
 
-	// UA cumulative envelope — only when the org actually set one,
-	// either as an org-wide max_total_usd or (phase 11) a cap for
-	// this swarm's realm; the cap walk reads the same counter for
-	// both. No bucket ⇒ no enforcement; per-invocation caps are
-	// checked at signature time and need no Redis state.
-	var uaCap float64
-	if claims.UABudget != nil {
-		uaCap = claims.UABudget.MaxTotalUSD
-	}
-	var realmID string
-	if reg := getRegistry(); reg != nil {
-		realmID = reg.RealmID()
-	}
-	if claims.UANonce != "" && (uaCap > 0 || realmCapFor(claims, realmID) > 0) {
-		uaKey := redisclient.Key(costUAPrefix + claims.UANonce)
-		uaTTL := runKeyTTL(parseRFC3339(claims.UAExp), now)
-		pipe.HIncrByFloat(ctx, uaKey, "total", costUSD)
-		pipe.Expire(ctx, uaKey, uaTTL)
-	}
-
 	// Per-agent windowed bucket — only when the operator configured
 	// a budget for this agent. The bucket key is computed from THIS
 	// write's clock ("bucket by the time of the write" — see phase-6
@@ -238,23 +217,11 @@ func accumulate(
 }
 
 // chainLayers returns the chain's distinct run layers outermost-first
-// (invocation, then each attenuation inward; the last element is the
-// leaf). Mirrors capLayers' dedup and its fallback: when Chain is
-// empty (older callers, tests) the leaf is synthesized from
-// Claims.RunID + EffectiveCaveats so accounting and the cap walk see
-// the same set of runs.
+// (block 0, then each block inward; the last element is the leaf).
+// Two blocks may share a run_id (strut's step links reuse the run's);
+// they share one counter, so the run is written once, with the
+// outermost block's caps on its meta.
 func chainLayers(claims *macaroon.Claims) []macaroon.ChainLayer {
-	if len(claims.Chain) == 0 {
-		if claims.RunID == "" {
-			return nil
-		}
-		return []macaroon.ChainLayer{{
-			RunID:      claims.RunID,
-			MaxCostUSD: claims.EffectiveCaveats.MaxCostUSD,
-			MaxSteps:   claims.EffectiveCaveats.MaxSteps,
-			Exp:        claims.EffectiveCaveats.Exp,
-		}}
-	}
 	out := make([]macaroon.ChainLayer, 0, len(claims.Chain))
 	seen := make(map[string]bool, len(claims.Chain))
 	for _, l := range claims.Chain {

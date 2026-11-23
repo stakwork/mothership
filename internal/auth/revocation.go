@@ -21,8 +21,9 @@ const (
 	revokePrefix = "revoke:"
 
 	// revokeUserBeforePrefix + <user_id> stores an RFC 3339 UTC
-	// timestamp. Any user_authorization.iat strictly before it is
-	// rejected (covers org-level offboarding / user re-issuance).
+	// timestamp. Any token whose block 0 (the org's grant to the
+	// person) has an iat strictly before it is rejected (covers
+	// org-level offboarding / user re-issuance).
 	revokeUserBeforePrefix = "revoke_user_before:"
 
 	// killRunPrefix + <run_id> is the per-run kill switch. Checked
@@ -30,8 +31,10 @@ const (
 	// parent kills every descendant. TTL 1h (hot operational state).
 	killRunPrefix = "kill:"
 
-	// killAgentPrefix + <agent_name> halts every run whose leaf agent
-	// (Claims.AgentName, i.e. agents[last]) matches. TTL 24h.
+	// killAgentPrefix + <agent_name> halts every run whose chain names
+	// that agent at any depth (Claims.Lineage), so killing an agent
+	// kills its sub-agents too — and a killed agent can't step around
+	// it by appending a block under another name. TTL 24h.
 	killAgentPrefix = "kill:agent:"
 )
 
@@ -96,15 +99,16 @@ func CheckRevocations(ctx context.Context, claims *macaroon.Claims) *AdapterErro
 
 	// Kill switches ride the same round-trip. One EXISTS per distinct
 	// run_id in the chain (outermost first, so a parent kill reports
-	// the parent's id), plus one for the leaf agent name.
+	// the parent's id), plus one per distinct agent in the lineage.
 	runIDs := chainRunIDs(claims)
 	killRunCmds := make([]*redis.IntCmd, len(runIDs))
 	for i, id := range runIDs {
 		killRunCmds[i] = pipe.Exists(pctx, redisclient.Key(killRunPrefix+id))
 	}
-	var killAgentCmd *redis.IntCmd
-	if claims.AgentName != "" {
-		killAgentCmd = pipe.Exists(pctx, redisclient.Key(killAgentPrefix+claims.AgentName))
+	agents := chainAgents(claims)
+	killAgentCmds := make([]*redis.IntCmd, len(agents))
+	for i, a := range agents {
+		killAgentCmds[i] = pipe.Exists(pctx, redisclient.Key(killAgentPrefix+a))
 	}
 
 	if _, err := pipe.Exec(pctx); err != nil && !errors.Is(err, redis.Nil) {
@@ -143,10 +147,9 @@ func CheckRevocations(ctx context.Context, claims *macaroon.Claims) *AdapterErro
 		}
 	}
 
-	// User-level revocation: compare ua.iat (from the macaroon)
-	// against the stored cutoff. Note phase-6 says we compare
-	// against ua.iat specifically, NOT invocation.iat — see
-	// "revoke_user_before" in the schema.
+	// User-level revocation: compare block 0's iat (the org's grant
+	// to the person) against the stored cutoff — not a later block's,
+	// see "revoke_user_before" in the phase-6 schema.
 	cutoffRaw, err := userBeforeCmd.Result()
 	switch {
 	case errors.Is(err, redis.Nil):
@@ -197,20 +200,20 @@ func CheckRevocations(ctx context.Context, claims *macaroon.Claims) *AdapterErro
 			}
 		}
 	}
-	if killAgentCmd != nil {
-		exists, err := killAgentCmd.Result()
+	for i, cmd := range killAgentCmds {
+		exists, err := cmd.Result()
 		if err != nil {
 			return &AdapterError{
 				Code:       "revocation_check_unavailable",
 				HTTPStatus: 401,
-				Message:    fmt.Sprintf("redis exists kill:agent:%s: %v", claims.AgentName, err),
+				Message:    fmt.Sprintf("redis exists kill:agent:%s: %v", agents[i], err),
 			}
 		}
 		if exists == 1 {
 			return &AdapterError{
 				Code:       "agent_killed",
 				HTTPStatus: 402,
-				Message:    fmt.Sprintf("agent %s was killed by an operator", claims.AgentName),
+				Message:    fmt.Sprintf("agent %s was killed by an operator", agents[i]),
 			}
 		}
 	}
@@ -218,8 +221,23 @@ func CheckRevocations(ctx context.Context, claims *macaroon.Claims) *AdapterErro
 	return nil
 }
 
+// chainAgents returns every distinct agent named in the chain,
+// outermost first, falling back to Claims.AgentName for callers that
+// only set the leaf.
+func chainAgents(claims *macaroon.Claims) []string {
+	out := make([]string, 0, len(claims.Lineage)+1)
+	seen := map[string]bool{}
+	for _, a := range append(append([]string(nil), claims.Lineage...), claims.AgentName) {
+		if a != "" && !seen[a] {
+			seen[a] = true
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // chainRunIDs returns every distinct run_id in the verified chain,
-// outermost (invocation) first, leaf last. Falls back to Claims.RunID
+// outermost (block 0) first, leaf last. Falls back to Claims.RunID
 // when the chain is empty so callers that only populate the leaf
 // still get their kill checked.
 func chainRunIDs(claims *macaroon.Claims) []string {
@@ -240,15 +258,11 @@ func chainRunIDs(claims *macaroon.Claims) []string {
 
 // revokeCodeFor maps the position of a revoked nonce in the
 // Claims.Nonces slice to a specific failure code, so an operator
-// reading a 401 can tell whether it was the user_authorization
-// (issuance) or an inner layer (per-invocation / per-attenuation)
-// that was killed.
+// reading a 401 can tell whether it was the org's grant to the person
+// (block 0, issuance) or a later block that was revoked.
 //
-// Claims.Nonces order is fixed by the pure verifier:
-//
-//	[0]   ua.nonce
-//	[1]   invocation.nonce
-//	[2:]  attenuations[i].caveats.nonce
+// Claims.Nonces order is fixed by the pure verifier: one per block,
+// block 0 first.
 func revokeCodeFor(i int) string {
 	switch i {
 	case 0:
@@ -258,14 +272,13 @@ func revokeCodeFor(i int) string {
 	}
 }
 
-// uaIATFromClaims pulls the user_authorization.iat out of the
-// verified claims — the phase-6 comparison axis for
-// revoke_user_before (NOT the invocation's iat: user-level
-// revocation invalidates org-issued user authorizations, and an
-// invocation signed after the cutoff against a re-issued UA is
-// fine). The pure verifier surfaces it as Claims.UAIAT.
+// uaIATFromClaims pulls block 0's iat out of the verified claims —
+// the phase-6 comparison axis for revoke_user_before (not a later
+// block's: user-level revocation invalidates the org's grants to the
+// person, and a run started after the cutoff under a re-issued grant
+// is fine). The pure verifier surfaces it as Claims.IAT.
 func uaIATFromClaims(claims *macaroon.Claims) (time.Time, error) {
-	return time.Parse(time.RFC3339, claims.UAIAT)
+	return time.Parse(time.RFC3339, claims.IAT)
 }
 
 // redactNonce shortens a 32-char hex nonce to its first 8 chars +

@@ -1,5 +1,11 @@
 # Phase 11 — Symmetric Recursive Authorization
 
+> **Superseded (phase 13):** the per-boundary narrowing rule below is
+> gone: in `phase-13-signed-block-chain.md` every block's limits apply
+> and the gateway checks all of them, so nothing is compared between
+> blocks. `budget.realm_budgets` is now `realms` on any block, with
+> the same membership cases checked per block.
+
 > Every signed layer (org → user, user → agent, agent → sub-agent)
 > carries the same shape and follows the same narrowing rule. Realms
 > become an optional, additive feature for multi-swarm deployments;

@@ -121,21 +121,19 @@ func Evaluate(ctx context.Context, rawMacaroon string) Decision {
 	return d
 }
 
-// CheckRealmMembership implements the phase-11 plugin-side
-// membership check. Four cases (per the phase doc):
+// CheckRealmMembership implements the plugin-side realm check, on
+// every block that sets `realms` (phase 13: every block's limits
+// apply, so each block's realm list is checked, not just the last):
 //
-//  1. Swarm has no realm_id AND macaroon has no realm_budgets:
-//     simple-deployment mode, no check. Returns nil.
-//  2. Swarm has a realm_id AND macaroon has realm_budgets:
-//     swarm.realm_id MUST be a key in claims.realm_budgets, else
-//     reject with realm_not_permitted.
-//  3. Swarm has a realm_id AND macaroon has no realm_budgets:
-//     the org didn't scope per-realm; swarm accepts and enforces
-//     only the non-realm caps. Returns nil.
-//  4. Swarm has no realm_id AND macaroon has realm_budgets:
-//     configuration error — a multi-realm macaroon landed on a
-//     swarm that doesn't claim an identity. Reject with
-//     realm_not_configured.
+//  1. No block sets realms: no check, whether or not the swarm has a
+//     realm_id (single-swarm deployments, or an org that doesn't scope
+//     per realm). Returns nil.
+//  2. A block sets realms and the swarm has a realm_id: the realm_id
+//     MUST be a key of that block's realms, else realm_not_permitted.
+//  3. A block sets realms and the swarm has no realm_id: a
+//     configuration error — a multi-realm macaroon landed on a swarm
+//     that doesn't claim an identity. Reject with realm_not_configured
+//     rather than silently accept calls the org meant to scope away.
 //
 // Exported so adapter tests can exercise it without spinning up
 // the full hot path; the plugin code calls it through Evaluate.
@@ -147,38 +145,25 @@ func CheckRealmMembership(claims *macaroon.Claims, registry *trust.Registry) *Ad
 	if registry != nil {
 		realmID = registry.RealmID()
 	}
-	var realmBudgets map[string]macaroon.RealmBudget
-	if b := claims.EffectiveCaveats.Budget; b != nil {
-		realmBudgets = b.RealmBudgets
-	}
-
-	switch {
-	case len(realmBudgets) == 0 && realmID == "":
-		// Case 1: simple deployment. Nothing to check.
-		return nil
-	case len(realmBudgets) == 0:
-		// Case 3: org didn't scope per-realm. Non-realm caps apply
-		// but the membership check is a no-op.
-		return nil
-	case realmID == "":
-		// Case 4: multi-realm macaroon, swarm has no identity.
-		// Treat as a configuration error rather than letting the
-		// macaroon through; otherwise a misconfigured swarm would
-		// silently accept calls that the org meant to scope away.
-		return &AdapterError{
-			Code:       "realm_not_configured",
-			HTTPStatus: 401,
-			Message: "macaroon carries realm_budgets but this swarm has no realm_id configured " +
-				"(set via PUT /_plugin/trust/realm_id)",
+	for _, l := range claims.Chain {
+		if len(l.Realms) == 0 {
+			continue
 		}
-	}
-	// Case 2: both sides set. Membership is required.
-	if _, ok := realmBudgets[realmID]; !ok {
-		return &AdapterError{
-			Code:       "realm_not_permitted",
-			HTTPStatus: 401,
-			Message: fmt.Sprintf("swarm realm_id %q not in macaroon's permitted_realms %v",
-				realmID, claims.PermittedRealms),
+		if realmID == "" {
+			return &AdapterError{
+				Code:       "realm_not_configured",
+				HTTPStatus: 401,
+				Message: "macaroon names realms but this swarm has no realm_id configured " +
+					"(set via PUT /_plugin/trust/realm_id)",
+			}
+		}
+		if _, ok := l.Realms[realmID]; !ok {
+			return &AdapterError{
+				Code:       "realm_not_permitted",
+				HTTPStatus: 401,
+				Message: fmt.Sprintf("swarm realm_id %q not in run %s's realms (permitted everywhere in the chain: %v)",
+					realmID, l.RunID, claims.PermittedRealms),
+			}
 		}
 	}
 	return nil

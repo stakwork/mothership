@@ -151,7 +151,6 @@ func Close() error {
 //
 //	Key("revoke:" + nonce)              → "bifrost:revoke:<nonce>"
 //	Key("cost:run:" + runID)            → "bifrost:cost:run:<run_id>"
-//	Key("cost:ua:" + uaNonce)           → "bifrost:cost:ua:<ua_nonce>"
 //
 // Sub-key shapes are defined in phase-6-plugin-enforcement.md "Redis
 // schema"; this helper is the only place that knows about the prefix.

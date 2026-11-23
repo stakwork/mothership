@@ -1,0 +1,155 @@
+{
+  "description": "block 0 permits realms w1 ($50) and w2 ($30); the agent's run narrows to w1 at $10",
+  "inputs": {
+    "org_id": "org_acme",
+    "policy": {
+      "type": "single",
+      "key": {
+        "alg": "ecdsa-secp256k1-sha256",
+        "key": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+      }
+    },
+    "org_keys": [
+      {
+        "alg": "ecdsa-secp256k1-sha256",
+        "priv_hex": "0000000000000000000000000000000000000000000000000000000000000001"
+      }
+    ],
+    "root": {
+      "caveats": {
+        "run_id": "ua_01h8multirealmgrant0000000",
+        "user_id": "u_alice",
+        "agents": [
+          "coder",
+          "repair-agent"
+        ],
+        "iat": "2026-05-14T09:00:00Z",
+        "exp": "2026-06-14T09:00:00Z",
+        "nonce": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+        "realms": {
+          "w1": {
+            "max_cost_usd": 50
+          },
+          "w2": {
+            "max_cost_usd": 30
+          }
+        }
+      },
+      "holder": {
+        "alg": "ed25519",
+        "priv_hex": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    },
+    "blocks": [
+      {
+        "caveats": {
+          "run_id": "r_01h8multirealmrun000000000",
+          "agent": "coder",
+          "max_cost_usd": 5,
+          "max_steps": 100,
+          "iat": "2026-05-14T10:00:00Z",
+          "exp": "2026-05-14T10:10:00Z",
+          "nonce": "e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2",
+          "realms": {
+            "w1": {
+              "max_cost_usd": 10
+            }
+          }
+        },
+        "next": {
+          "alg": "ed25519",
+          "priv_hex": "2121212121212121212121212121212121212121212121212121212121212121"
+        }
+      }
+    ],
+    "now": "2026-05-14T10:00:01Z"
+  },
+  "expected": {
+    "blocks": [
+      {
+        "prev_hex": "",
+        "signing_bytes_hex": "7b2263617665617473223a7b226167656e7473223a5b22636f646572222c227265706169722d6167656e74225d2c22657870223a22323032362d30362d31345430393a30303a30305a222c22696174223a22323032362d30352d31345430393a30303a30305a222c226e6f6e6365223a226531653165316531653165316531653165316531653165316531653165316531222c227265616c6d73223a7b227731223a7b226d61785f636f73745f757364223a35307d2c227732223a7b226d61785f636f73745f757364223a33307d7d2c2272756e5f6964223a2275615f303168386d756c74697265616c6d6772616e7430303030303030222c22757365725f6964223a22755f616c696365227d2c226e6578745f6b6579223a7b22616c67223a2265643235353139222c226b6579223a2264303461623233323734326262346162336131333638626434363135653465366430323234616237316130313662616638353230613333326339373738373337227d2c226f72675f6964223a226f72675f61636d65222c2270726576223a22227d",
+        "block_canonical_json": "{\"caveats\":{\"agents\":[\"coder\",\"repair-agent\"],\"exp\":\"2026-06-14T09:00:00Z\",\"iat\":\"2026-05-14T09:00:00Z\",\"nonce\":\"e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1\",\"realms\":{\"w1\":{\"max_cost_usd\":50},\"w2\":{\"max_cost_usd\":30}},\"run_id\":\"ua_01h8multirealmgrant0000000\",\"user_id\":\"u_alice\"},\"next_key\":{\"alg\":\"ed25519\",\"key\":\"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737\"},\"sig\":{\"alg\":\"ecdsa-secp256k1-sha256\",\"sig\":\"e3404749bc753abab9dd35fb12d9cec5b73a88d1cf599406d2ad4519f7613c5f4103ed9c64e5719c6431269f56453e9002b1e8f277595db925dddb19ecf5d53a\"}}"
+      },
+      {
+        "prev_hex": "768bbb80bfd7f8b45ad39a0ecdb4ee72073790b948ab18f793011e97cd65d1b6",
+        "signing_bytes_hex": "7b2263617665617473223a7b226167656e74223a22636f646572222c22657870223a22323032362d30352d31345431303a31303a30305a222c22696174223a22323032362d30352d31345431303a30303a30305a222c226d61785f636f73745f757364223a352c226d61785f7374657073223a3130302c226e6f6e6365223a226532653265326532653265326532653265326532653265326532653265326532222c227265616c6d73223a7b227731223a7b226d61785f636f73745f757364223a31307d7d2c2272756e5f6964223a22725f303168386d756c74697265616c6d72756e303030303030303030227d2c226e6578745f6b6579223a7b22616c67223a2265643235353139222c226b6579223a2238383462383835376634656161313631336336313530346462333464346265616633343635313761306533316465336364646434643962343230316439643062227d2c226f72675f6964223a226f72675f61636d65222c2270726576223a2237363862626238306266643766386234356164333961306563646234656537323037333739306239343861623138663739333031316539376364363564316236227d",
+        "block_canonical_json": "{\"caveats\":{\"agent\":\"coder\",\"exp\":\"2026-05-14T10:10:00Z\",\"iat\":\"2026-05-14T10:00:00Z\",\"max_cost_usd\":5,\"max_steps\":100,\"nonce\":\"e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2\",\"realms\":{\"w1\":{\"max_cost_usd\":10}},\"run_id\":\"r_01h8multirealmrun000000000\"},\"next_key\":{\"alg\":\"ed25519\",\"key\":\"884b8857f4eaa1613c61504db34d4beaf346517a0e31de3cddd4d9b4201d9d0b\"},\"sig\":{\"alg\":\"ed25519\",\"sig\":\"b8dc2f49bb3ae0b3472934f27a604df3c3da12d7974ee66e047356f25d6b17d5b32882061bb613c899fd7ee54b1c80bb4c2edfa43056c63740f0fe7f726ef704\"}}"
+      }
+    ],
+    "token_canonical_json": "{\"blocks\":[{\"caveats\":{\"agents\":[\"coder\",\"repair-agent\"],\"exp\":\"2026-06-14T09:00:00Z\",\"iat\":\"2026-05-14T09:00:00Z\",\"nonce\":\"e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1\",\"realms\":{\"w1\":{\"max_cost_usd\":50},\"w2\":{\"max_cost_usd\":30}},\"run_id\":\"ua_01h8multirealmgrant0000000\",\"user_id\":\"u_alice\"},\"next_key\":{\"alg\":\"ed25519\",\"key\":\"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737\"},\"sig\":{\"alg\":\"ecdsa-secp256k1-sha256\",\"sig\":\"e3404749bc753abab9dd35fb12d9cec5b73a88d1cf599406d2ad4519f7613c5f4103ed9c64e5719c6431269f56453e9002b1e8f277595db925dddb19ecf5d53a\"}},{\"caveats\":{\"agent\":\"coder\",\"exp\":\"2026-05-14T10:10:00Z\",\"iat\":\"2026-05-14T10:00:00Z\",\"max_cost_usd\":5,\"max_steps\":100,\"nonce\":\"e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2\",\"realms\":{\"w1\":{\"max_cost_usd\":10}},\"run_id\":\"r_01h8multirealmrun000000000\"},\"next_key\":{\"alg\":\"ed25519\",\"key\":\"884b8857f4eaa1613c61504db34d4beaf346517a0e31de3cddd4d9b4201d9d0b\"},\"sig\":{\"alg\":\"ed25519\",\"sig\":\"b8dc2f49bb3ae0b3472934f27a604df3c3da12d7974ee66e047356f25d6b17d5b32882061bb613c899fd7ee54b1c80bb4c2edfa43056c63740f0fe7f726ef704\"}}],\"org_id\":\"org_acme\",\"proof\":\"2121212121212121212121212121212121212121212121212121212121212121\",\"v\":2}",
+    "token_b64url": "eyJibG9ja3MiOlt7ImNhdmVhdHMiOnsiYWdlbnRzIjpbImNvZGVyIiwicmVwYWlyLWFnZW50Il0sImV4cCI6IjIwMjYtMDYtMTRUMDk6MDA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQwOTowMDowMFoiLCJub25jZSI6ImUxZTFlMWUxZTFlMWUxZTFlMWUxZTFlMWUxZTFlMWUxIiwicmVhbG1zIjp7IncxIjp7Im1heF9jb3N0X3VzZCI6NTB9LCJ3MiI6eyJtYXhfY29zdF91c2QiOjMwfX0sInJ1bl9pZCI6InVhXzAxaDhtdWx0aXJlYWxtZ3JhbnQwMDAwMDAwIiwidXNlcl9pZCI6InVfYWxpY2UifSwibmV4dF9rZXkiOnsiYWxnIjoiZWQyNTUxOSIsImtleSI6ImQwNGFiMjMyNzQyYmI0YWIzYTEzNjhiZDQ2MTVlNGU2ZDAyMjRhYjcxYTAxNmJhZjg1MjBhMzMyYzk3Nzg3MzcifSwic2lnIjp7ImFsZyI6ImVjZHNhLXNlY3AyNTZrMS1zaGEyNTYiLCJzaWciOiJlMzQwNDc0OWJjNzUzYWJhYjlkZDM1ZmIxMmQ5Y2VjNWI3M2E4OGQxY2Y1OTk0MDZkMmFkNDUxOWY3NjEzYzVmNDEwM2VkOWM2NGU1NzE5YzY0MzEyNjlmNTY0NTNlOTAwMmIxZThmMjc3NTk1ZGI5MjVkZGRiMTllY2Y1ZDUzYSJ9fSx7ImNhdmVhdHMiOnsiYWdlbnQiOiJjb2RlciIsImV4cCI6IjIwMjYtMDUtMTRUMTA6MTA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQxMDowMDowMFoiLCJtYXhfY29zdF91c2QiOjUsIm1heF9zdGVwcyI6MTAwLCJub25jZSI6ImUyZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmUyIiwicmVhbG1zIjp7IncxIjp7Im1heF9jb3N0X3VzZCI6MTB9fSwicnVuX2lkIjoicl8wMWg4bXVsdGlyZWFsbXJ1bjAwMDAwMDAwMCJ9LCJuZXh0X2tleSI6eyJhbGciOiJlZDI1NTE5Iiwia2V5IjoiODg0Yjg4NTdmNGVhYTE2MTNjNjE1MDRkYjM0ZDRiZWFmMzQ2NTE3YTBlMzFkZTNjZGRkNGQ5YjQyMDFkOWQwYiJ9LCJzaWciOnsiYWxnIjoiZWQyNTUxOSIsInNpZyI6ImI4ZGMyZjQ5YmIzYWUwYjM0NzI5MzRmMjdhNjA0ZGYzYzNkYTEyZDc5NzRlZTY2ZTA0NzM1NmYyNWQ2YjE3ZDViMzI4ODIwNjFiYjYxM2M4OTlmZDdlZTU0YjFjODBiYjRjMmVkZmE0MzA1NmM2Mzc0MGYwZmU3ZjcyNmVmNzA0In19XSwib3JnX2lkIjoib3JnX2FjbWUiLCJwcm9vZiI6IjIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEiLCJ2IjoyfQ",
+    "claims": {
+      "org_id": "org_acme",
+      "user_id": "u_alice",
+      "agent_name": "coder",
+      "lineage": [
+        "coder"
+      ],
+      "run_id": "r_01h8multirealmrun000000000",
+      "iat": "2026-05-14T09:00:00Z",
+      "exp": "2026-05-14T10:10:00Z",
+      "chain": [
+        {
+          "run_id": "ua_01h8multirealmgrant0000000",
+          "max_cost_usd": 0,
+          "max_steps": 0,
+          "realms": {
+            "w1": {
+              "max_cost_usd": 50
+            },
+            "w2": {
+              "max_cost_usd": 30
+            }
+          },
+          "exp": "2026-06-14T09:00:00Z"
+        },
+        {
+          "run_id": "r_01h8multirealmrun000000000",
+          "max_cost_usd": 5,
+          "max_steps": 100,
+          "realms": {
+            "w1": {
+              "max_cost_usd": 10
+            }
+          },
+          "exp": "2026-05-14T10:10:00Z"
+        }
+      ],
+      "nonces": [
+        "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+        "e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2"
+      ],
+      "permitted_realms": [
+        "w1"
+      ]
+    },
+    "tampered": [
+      {
+        "case": "drop the last 1 block(s)",
+        "token_b64url": "eyJibG9ja3MiOlt7ImNhdmVhdHMiOnsiYWdlbnRzIjpbImNvZGVyIiwicmVwYWlyLWFnZW50Il0sImV4cCI6IjIwMjYtMDYtMTRUMDk6MDA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQwOTowMDowMFoiLCJub25jZSI6ImUxZTFlMWUxZTFlMWUxZTFlMWUxZTFlMWUxZTFlMWUxIiwicmVhbG1zIjp7IncxIjp7Im1heF9jb3N0X3VzZCI6NTB9LCJ3MiI6eyJtYXhfY29zdF91c2QiOjMwfX0sInJ1bl9pZCI6InVhXzAxaDhtdWx0aXJlYWxtZ3JhbnQwMDAwMDAwIiwidXNlcl9pZCI6InVfYWxpY2UifSwibmV4dF9rZXkiOnsiYWxnIjoiZWQyNTUxOSIsImtleSI6ImQwNGFiMjMyNzQyYmI0YWIzYTEzNjhiZDQ2MTVlNGU2ZDAyMjRhYjcxYTAxNmJhZjg1MjBhMzMyYzk3Nzg3MzcifSwic2lnIjp7ImFsZyI6ImVjZHNhLXNlY3AyNTZrMS1zaGEyNTYiLCJzaWciOiJlMzQwNDc0OWJjNzUzYWJhYjlkZDM1ZmIxMmQ5Y2VjNWI3M2E4OGQxY2Y1OTk0MDZkMmFkNDUxOWY3NjEzYzVmNDEwM2VkOWM2NGU1NzE5YzY0MzEyNjlmNTY0NTNlOTAwMmIxZThmMjc3NTk1ZGI5MjVkZGRiMTllY2Y1ZDUzYSJ9fV0sIm9yZ19pZCI6Im9yZ19hY21lIiwicHJvb2YiOiIyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxIiwidiI6Mn0",
+        "code": "invalid_proof"
+      },
+      {
+        "case": "proof from another key",
+        "token_b64url": "eyJibG9ja3MiOlt7ImNhdmVhdHMiOnsiYWdlbnRzIjpbImNvZGVyIiwicmVwYWlyLWFnZW50Il0sImV4cCI6IjIwMjYtMDYtMTRUMDk6MDA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQwOTowMDowMFoiLCJub25jZSI6ImUxZTFlMWUxZTFlMWUxZTFlMWUxZTFlMWUxZTFlMWUxIiwicmVhbG1zIjp7IncxIjp7Im1heF9jb3N0X3VzZCI6NTB9LCJ3MiI6eyJtYXhfY29zdF91c2QiOjMwfX0sInJ1bl9pZCI6InVhXzAxaDhtdWx0aXJlYWxtZ3JhbnQwMDAwMDAwIiwidXNlcl9pZCI6InVfYWxpY2UifSwibmV4dF9rZXkiOnsiYWxnIjoiZWQyNTUxOSIsImtleSI6ImQwNGFiMjMyNzQyYmI0YWIzYTEzNjhiZDQ2MTVlNGU2ZDAyMjRhYjcxYTAxNmJhZjg1MjBhMzMyYzk3Nzg3MzcifSwic2lnIjp7ImFsZyI6ImVjZHNhLXNlY3AyNTZrMS1zaGEyNTYiLCJzaWciOiJlMzQwNDc0OWJjNzUzYWJhYjlkZDM1ZmIxMmQ5Y2VjNWI3M2E4OGQxY2Y1OTk0MDZkMmFkNDUxOWY3NjEzYzVmNDEwM2VkOWM2NGU1NzE5YzY0MzEyNjlmNTY0NTNlOTAwMmIxZThmMjc3NTk1ZGI5MjVkZGRiMTllY2Y1ZDUzYSJ9fSx7ImNhdmVhdHMiOnsiYWdlbnQiOiJjb2RlciIsImV4cCI6IjIwMjYtMDUtMTRUMTA6MTA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQxMDowMDowMFoiLCJtYXhfY29zdF91c2QiOjUsIm1heF9zdGVwcyI6MTAwLCJub25jZSI6ImUyZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmUyIiwicmVhbG1zIjp7IncxIjp7Im1heF9jb3N0X3VzZCI6MTB9fSwicnVuX2lkIjoicl8wMWg4bXVsdGlyZWFsbXJ1bjAwMDAwMDAwMCJ9LCJuZXh0X2tleSI6eyJhbGciOiJlZDI1NTE5Iiwia2V5IjoiODg0Yjg4NTdmNGVhYTE2MTNjNjE1MDRkYjM0ZDRiZWFmMzQ2NTE3YTBlMzFkZTNjZGRkNGQ5YjQyMDFkOWQwYiJ9LCJzaWciOnsiYWxnIjoiZWQyNTUxOSIsInNpZyI6ImI4ZGMyZjQ5YmIzYWUwYjM0NzI5MzRmMjdhNjA0ZGYzYzNkYTEyZDc5NzRlZTY2ZTA0NzM1NmYyNWQ2YjE3ZDViMzI4ODIwNjFiYjYxM2M4OTlmZDdlZTU0YjFjODBiYjRjMmVkZmE0MzA1NmM2Mzc0MGYwZmU3ZjcyNmVmNzA0In19XSwib3JnX2lkIjoib3JnX2FjbWUiLCJwcm9vZiI6Ijk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTkiLCJ2IjoyfQ",
+        "code": "invalid_proof"
+      },
+      {
+        "case": "block 0's caveats edited",
+        "token_b64url": "eyJibG9ja3MiOlt7ImNhdmVhdHMiOnsiYWdlbnRzIjpbImNvZGVyIiwicmVwYWlyLWFnZW50Il0sImV4cCI6IjIwOTktMDEtMDFUMDA6MDA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQwOTowMDowMFoiLCJub25jZSI6ImUxZTFlMWUxZTFlMWUxZTFlMWUxZTFlMWUxZTFlMWUxIiwicmVhbG1zIjp7IncxIjp7Im1heF9jb3N0X3VzZCI6NTB9LCJ3MiI6eyJtYXhfY29zdF91c2QiOjMwfX0sInJ1bl9pZCI6InVhXzAxaDhtdWx0aXJlYWxtZ3JhbnQwMDAwMDAwIiwidXNlcl9pZCI6InVfYWxpY2UifSwibmV4dF9rZXkiOnsiYWxnIjoiZWQyNTUxOSIsImtleSI6ImQwNGFiMjMyNzQyYmI0YWIzYTEzNjhiZDQ2MTVlNGU2ZDAyMjRhYjcxYTAxNmJhZjg1MjBhMzMyYzk3Nzg3MzcifSwic2lnIjp7ImFsZyI6ImVjZHNhLXNlY3AyNTZrMS1zaGEyNTYiLCJzaWciOiJlMzQwNDc0OWJjNzUzYWJhYjlkZDM1ZmIxMmQ5Y2VjNWI3M2E4OGQxY2Y1OTk0MDZkMmFkNDUxOWY3NjEzYzVmNDEwM2VkOWM2NGU1NzE5YzY0MzEyNjlmNTY0NTNlOTAwMmIxZThmMjc3NTk1ZGI5MjVkZGRiMTllY2Y1ZDUzYSJ9fSx7ImNhdmVhdHMiOnsiYWdlbnQiOiJjb2RlciIsImV4cCI6IjIwMjYtMDUtMTRUMTA6MTA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQxMDowMDowMFoiLCJtYXhfY29zdF91c2QiOjUsIm1heF9zdGVwcyI6MTAwLCJub25jZSI6ImUyZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmUyIiwicmVhbG1zIjp7IncxIjp7Im1heF9jb3N0X3VzZCI6MTB9fSwicnVuX2lkIjoicl8wMWg4bXVsdGlyZWFsbXJ1bjAwMDAwMDAwMCJ9LCJuZXh0X2tleSI6eyJhbGciOiJlZDI1NTE5Iiwia2V5IjoiODg0Yjg4NTdmNGVhYTE2MTNjNjE1MDRkYjM0ZDRiZWFmMzQ2NTE3YTBlMzFkZTNjZGRkNGQ5YjQyMDFkOWQwYiJ9LCJzaWciOnsiYWxnIjoiZWQyNTUxOSIsInNpZyI6ImI4ZGMyZjQ5YmIzYWUwYjM0NzI5MzRmMjdhNjA0ZGYzYzNkYTEyZDc5NzRlZTY2ZTA0NzM1NmYyNWQ2YjE3ZDViMzI4ODIwNjFiYjYxM2M4OTlmZDdlZTU0YjFjODBiYjRjMmVkZmE0MzA1NmM2Mzc0MGYwZmU3ZjcyNmVmNzA0In19XSwib3JnX2lkIjoib3JnX2FjbWUiLCJwcm9vZiI6IjIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEiLCJ2IjoyfQ",
+        "code": "invalid_root_signature"
+      },
+      {
+        "case": "block 1's caveats edited",
+        "token_b64url": "eyJibG9ja3MiOlt7ImNhdmVhdHMiOnsiYWdlbnRzIjpbImNvZGVyIiwicmVwYWlyLWFnZW50Il0sImV4cCI6IjIwMjYtMDYtMTRUMDk6MDA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQwOTowMDowMFoiLCJub25jZSI6ImUxZTFlMWUxZTFlMWUxZTFlMWUxZTFlMWUxZTFlMWUxIiwicmVhbG1zIjp7IncxIjp7Im1heF9jb3N0X3VzZCI6NTB9LCJ3MiI6eyJtYXhfY29zdF91c2QiOjMwfX0sInJ1bl9pZCI6InVhXzAxaDhtdWx0aXJlYWxtZ3JhbnQwMDAwMDAwIiwidXNlcl9pZCI6InVfYWxpY2UifSwibmV4dF9rZXkiOnsiYWxnIjoiZWQyNTUxOSIsImtleSI6ImQwNGFiMjMyNzQyYmI0YWIzYTEzNjhiZDQ2MTVlNGU2ZDAyMjRhYjcxYTAxNmJhZjg1MjBhMzMyYzk3Nzg3MzcifSwic2lnIjp7ImFsZyI6ImVjZHNhLXNlY3AyNTZrMS1zaGEyNTYiLCJzaWciOiJlMzQwNDc0OWJjNzUzYWJhYjlkZDM1ZmIxMmQ5Y2VjNWI3M2E4OGQxY2Y1OTk0MDZkMmFkNDUxOWY3NjEzYzVmNDEwM2VkOWM2NGU1NzE5YzY0MzEyNjlmNTY0NTNlOTAwMmIxZThmMjc3NTk1ZGI5MjVkZGRiMTllY2Y1ZDUzYSJ9fSx7ImNhdmVhdHMiOnsiYWdlbnQiOiJjb2RlciIsImV4cCI6IjIwMjYtMDUtMTRUMTA6MTA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQxMDowMDowMFoiLCJtYXhfY29zdF91c2QiOjEwMDAsIm1heF9zdGVwcyI6MTAwLCJub25jZSI6ImUyZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmUyIiwicmVhbG1zIjp7IncxIjp7Im1heF9jb3N0X3VzZCI6MTB9fSwicnVuX2lkIjoicl8wMWg4bXVsdGlyZWFsbXJ1bjAwMDAwMDAwMCJ9LCJuZXh0X2tleSI6eyJhbGciOiJlZDI1NTE5Iiwia2V5IjoiODg0Yjg4NTdmNGVhYTE2MTNjNjE1MDRkYjM0ZDRiZWFmMzQ2NTE3YTBlMzFkZTNjZGRkNGQ5YjQyMDFkOWQwYiJ9LCJzaWciOnsiYWxnIjoiZWQyNTUxOSIsInNpZyI6ImI4ZGMyZjQ5YmIzYWUwYjM0NzI5MzRmMjdhNjA0ZGYzYzNkYTEyZDc5NzRlZTY2ZTA0NzM1NmYyNWQ2YjE3ZDViMzI4ODIwNjFiYjYxM2M4OTlmZDdlZTU0YjFjODBiYjRjMmVkZmE0MzA1NmM2Mzc0MGYwZmU3ZjcyNmVmNzA0In19XSwib3JnX2lkIjoib3JnX2FjbWUiLCJwcm9vZiI6IjIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEiLCJ2IjoyfQ",
+        "code": "invalid_block_signature"
+      },
+      {
+        "case": "block 1 moved under another block 0",
+        "token_b64url": "eyJibG9ja3MiOlt7ImNhdmVhdHMiOnsiYWdlbnRzIjpbImNvZGVyIiwicmVwYWlyLWFnZW50Il0sImV4cCI6IjIwMjYtMDYtMTRUMDk6MDA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQwOTowMDowMFoiLCJub25jZSI6IjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwIiwicmVhbG1zIjp7IncxIjp7Im1heF9jb3N0X3VzZCI6NTB9LCJ3MiI6eyJtYXhfY29zdF91c2QiOjMwfX0sInJ1bl9pZCI6InVhXzAxaDhtdWx0aXJlYWxtZ3JhbnQwMDAwMDAwIiwidXNlcl9pZCI6InVfYWxpY2UifSwibmV4dF9rZXkiOnsiYWxnIjoiZWQyNTUxOSIsImtleSI6ImQwNGFiMjMyNzQyYmI0YWIzYTEzNjhiZDQ2MTVlNGU2ZDAyMjRhYjcxYTAxNmJhZjg1MjBhMzMyYzk3Nzg3MzcifSwic2lnIjp7ImFsZyI6ImVjZHNhLXNlY3AyNTZrMS1zaGEyNTYiLCJzaWciOiI4NWJlMGFkYWQ3YzA5YTI4Nzk3NDQ1M2ZlZDg4Zjg3ZGIwNDdjYmFlNTdhNjk5ZGQ1YTEyMzM3ZGViNmVlNGNjNDQxNzI2ZDI5Yjk1NTQzNjY5ZjI3YzEzZTJlYWVkZDgwYzkzNTY2NDJlYzg2M2E5OGI4YWIyYjA4NGQxM2FjNyJ9fSx7ImNhdmVhdHMiOnsiYWdlbnQiOiJjb2RlciIsImV4cCI6IjIwMjYtMDUtMTRUMTA6MTA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQxMDowMDowMFoiLCJtYXhfY29zdF91c2QiOjUsIm1heF9zdGVwcyI6MTAwLCJub25jZSI6ImUyZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmUyIiwicmVhbG1zIjp7IncxIjp7Im1heF9jb3N0X3VzZCI6MTB9fSwicnVuX2lkIjoicl8wMWg4bXVsdGlyZWFsbXJ1bjAwMDAwMDAwMCJ9LCJuZXh0X2tleSI6eyJhbGciOiJlZDI1NTE5Iiwia2V5IjoiODg0Yjg4NTdmNGVhYTE2MTNjNjE1MDRkYjM0ZDRiZWFmMzQ2NTE3YTBlMzFkZTNjZGRkNGQ5YjQyMDFkOWQwYiJ9LCJzaWciOnsiYWxnIjoiZWQyNTUxOSIsInNpZyI6ImI4ZGMyZjQ5YmIzYWUwYjM0NzI5MzRmMjdhNjA0ZGYzYzNkYTEyZDc5NzRlZTY2ZTA0NzM1NmYyNWQ2YjE3ZDViMzI4ODIwNjFiYjYxM2M4OTlmZDdlZTU0YjFjODBiYjRjMmVkZmE0MzA1NmM2Mzc0MGYwZmU3ZjcyNmVmNzA0In19XSwib3JnX2lkIjoib3JnX2FjbWUiLCJwcm9vZiI6IjIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEyMTIxMjEiLCJ2IjoyfQ",
+        "code": "invalid_block_signature"
+      }
+    ]
+  }
+}

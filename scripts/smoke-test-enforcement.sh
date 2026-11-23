@@ -113,23 +113,23 @@ new_run_id() {
   printf 'r_enforce_%s_%s' "$(date +%s)" "$RANDOM"
 }
 
-# mint_macaroon <run_id> [realm_budgets_json]
+# mint_macaroon <run_id> [realms_json]
 #
 # Calls mint-macaroon.ts and emits the b64url macaroon on stdout. Any
 # tsx errors land on stderr and we propagate the non-zero exit.
 #
 # Phase 11: the singular `--realm` flag is gone. Pass the optional
-# second arg (a JSON `realm_budgets` map) to mint a multi-swarm
-# macaroon — both the UA and the invocation receive that scoping.
+# second arg (a JSON `realms` map) to mint a multi-swarm
+# macaroon — block 0 (the org's grant to the person) carries it.
 # Omit it for the simple single-swarm shape.
 mint_macaroon() {
   local run_id="$1"
-  local realm_budgets="${2:-}"
+  local realms="${2:-}"
   # Run tsx from the TS package dir so node module resolution picks
   # up the @noble/* / canonicalize deps. The mint script resolves
   # fixture paths relative to its own __dirname, so it works fine
   # from any cwd.
-  if [ -n "$realm_budgets" ]; then
+  if [ -n "$realms" ]; then
     (
       cd "$TS_DIR" && \
       "$TSX" "$SCRIPT_DIR/mint-macaroon.ts" \
@@ -140,7 +140,7 @@ mint_macaroon() {
         --max-cost-usd 1.00 \
         --max-steps 50 \
         --ttl-seconds 600 \
-        --realm-budgets "$realm_budgets"
+        --realms "$realms"
     )
   else
     (

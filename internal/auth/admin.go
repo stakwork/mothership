@@ -21,7 +21,7 @@ import (
 //
 // These helpers exist so a swarm operator (or Hive, fanning out) can:
 //
-//   - Revoke a specific nonce (any layer: UA, invocation, attenuation)
+//   - Revoke a specific nonce (any block of the chain)
 //     before its natural exp. Use case: an employee leaves mid-week
 //     and the org leader pushes a kill before re-issuing.
 //   - Set a user-level cutoff (revoke_user_before) so every macaroon
@@ -101,7 +101,8 @@ func UnrevokeNonce(ctx context.Context, nonce string) error {
 }
 
 // SetUserRevokeCutoff writes the revoke_user_before:<user_id> key.
-// Any user_authorization with iat strictly before `cutoff` will be
+// Any token whose block 0 (the org's grant to the person) has an iat
+// strictly before `cutoff` will be
 // rejected from now on. No TTL — user-level revocation is a
 // permanent state until explicitly cleared (phase-6 schema).
 //

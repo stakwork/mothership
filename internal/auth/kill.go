@@ -53,7 +53,7 @@ type RunState struct {
 	MaxCostUSD float64 // macaroon layer cap; 0 = no cap
 	MaxSteps   int64   // macaroon layer cap; 0 = no cap
 	Exp        string  // layer exp, RFC3339
-	Parent     string  // next layer outward; "" for the invocation
+	Parent     string  // next layer outward; "" for block 0
 	AgentName  string  // leaf agent (only stamped by the run's own calls)
 	UserID     string  // user the macaroon was issued to
 }

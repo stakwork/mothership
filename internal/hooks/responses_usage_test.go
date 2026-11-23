@@ -221,11 +221,8 @@ func newClaimsContext() *schemas.BifrostContext {
 		UserID:    "u_test",
 		AgentName: "chat-agent",
 		RunID:     "r_resp",
-		EffectiveCaveats: macaroon.EffectiveCaveats{
-			Agents: []string{"chat-agent"},
-			Exp:    exp,
-		},
-		Chain: []macaroon.ChainLayer{{RunID: "r_resp", Exp: exp}},
+		Exp:       exp,
+		Chain:     []macaroon.ChainLayer{{RunID: "r_resp", Exp: exp}},
 	})
 	return ctx
 }

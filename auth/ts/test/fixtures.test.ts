@@ -1,12 +1,10 @@
 /**
  * Cross-language byte-equivalence test (TS side).
  *
- * Loads every `auth/fixtures/*.json`, reproduces every
- * `expected.*` value from the `inputs.*` private keys + unsigned
- * objects, and fails if any byte differs.
- *
- * The Go side runs the same test against the same fixtures. If both
- * pass, the implementations agree.
+ * Rebuilds every `auth/fixtures/NN-*.json` token from its `inputs`,
+ * matches every `expected` value byte for byte, and checks every
+ * tampered token fails with its code. The Go side runs the same checks
+ * against the same files; if both pass, the implementations agree.
  */
 
 import { strict as assert } from "node:assert";
@@ -17,199 +15,90 @@ import { fileURLToPath } from "node:url";
 
 import {
   attenuate,
-  bytesToBase64url,
+  blockHash,
+  blockSigningBytes,
   bytesToHex,
-  computeAttenuationHmac,
+  encodeToken,
   hexToBytes,
-  invocationSigBytes,
   jcs,
-  signingBytes,
-  signInvocation,
-  signUserAuthorizationMultisig,
-  signUserAuthorizationSingle,
-  utf8Bytes,
+  keyPair,
+  signRoot,
+  signRootMultisig,
   verify,
+  VerifyError,
 } from "../src/index.js";
-import type {
-  Attenuation,
-  AttenuationCaveats,
-  Budget,
-  InvocationUnsigned,
-  Macaroon,
-  Policy,
-  UserAuthorizationUnsigned,
-} from "../src/index.js";
+import type { Block, Caveats, Claims, KeyAlg, Policy, Token } from "../src/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = join(HERE, "..", "..", "fixtures");
 
-interface FixtureShape {
+interface KeyInput {
+  alg: KeyAlg;
+  priv_hex: string;
+}
+
+interface Fixture {
   description: string;
   inputs: {
     org_id: string;
-    org_priv_hex?: string;                     // single-sig
-    org_privs_hex?: Record<string, string>;    // multisig
-    participating_signers?: number[];          // multisig
-    user_priv_hex: string;
     policy: Policy;
-    ua_unsigned: UserAuthorizationUnsigned;
-    inv_unsigned: InvocationUnsigned;
-    atts_unsigned: AttenuationCaveats[];
+    org_keys: KeyInput[];
+    participating_signers?: number[];
+    root: { caveats: Caveats; holder: KeyInput };
+    blocks: Array<{ caveats: Caveats; next: KeyInput }>;
+    now: string;
   };
   expected: {
-    ua_signing_bytes_hex: string;
-    inv_signing_bytes_hex: string;
-    ua_canonical_json: string;
-    inv_canonical_json: string;
-    macaroon_canonical_json: string;
-    macaroon_b64url: string;
-    attenuation_hmac_inputs: Array<{
-      prev_sig_hex: string;
-      caveats_canonical_json: string;
-      hmac_input_hex: string;
-      hmac_output_hex: string;
-    }>;
-    claims: {
-      org_id: string;
-      user_id: string;
-      agent_name: string;
-      run_id: string;
-      effective_caveats: {
-        agents: string[];
-        max_cost_usd: number;
-        max_steps: number;
-        budget: Budget | null;
-        exp: string;
-      };
-      ua_nonce: string;
-      ua_budget: Budget | null;
-      permitted_realms: string[] | null;
-      nonces: string[];
-      iat: string;
-    };
-    verify_result: "ok";
+    blocks: Array<{ prev_hex: string; signing_bytes_hex: string; block_canonical_json: string }>;
+    token_canonical_json: string;
+    token_b64url: string;
+    claims: Claims;
+    tampered: Array<{ case: string; token_b64url: string; code: string }>;
   };
 }
 
-function fixtureFiles(): string[] {
-  return readdirSync(FIXTURES_DIR)
-    .filter((f) => /^\d{2}-.*\.json$/.test(f))
-    .sort();
-}
+const kp = (k: KeyInput) => keyPair(k.alg, hexToBytes(k.priv_hex));
 
-for (const file of fixtureFiles()) {
-  test(`fixture ${file}`, () => {
-    const fx: FixtureShape = JSON.parse(
-      readFileSync(join(FIXTURES_DIR, file), "utf8"),
-    );
+for (const file of readdirSync(FIXTURES_DIR).filter((f) => /^\d{2}-.*\.json$/.test(f)).sort()) {
+  const fx: Fixture = JSON.parse(readFileSync(join(FIXTURES_DIR, file), "utf8"));
+  const { inputs, expected } = fx;
+  const now = new Date(inputs.now);
 
-    // ─── re-sign ua ──────────────────────────────────────────────
-    let signedUa;
-    if (fx.inputs.org_priv_hex) {
-      signedUa = signUserAuthorizationSingle(
-        fx.inputs.ua_unsigned,
-        hexToBytes(fx.inputs.org_priv_hex),
-      );
-    } else if (fx.inputs.org_privs_hex && fx.inputs.participating_signers) {
-      const signers = fx.inputs.participating_signers.map((idx) => ({
-        key_index: idx,
-        privKey: hexToBytes(fx.inputs.org_privs_hex![String(idx)]!),
-      }));
-      signedUa = signUserAuthorizationMultisig(fx.inputs.ua_unsigned, signers);
-    } else {
-      throw new Error(`fixture ${file}: no org signing inputs`);
-    }
+  test(`fixture ${file}: rebuilds byte for byte and verifies`, () => {
+    const holder = kp(inputs.root.holder);
+    const root: Block = inputs.participating_signers
+      ? signRootMultisig(
+          inputs.org_id,
+          inputs.root.caveats,
+          holder.pub,
+          inputs.participating_signers.map((i) => ({ ...kp(inputs.org_keys[i]!), key_index: i })),
+        )
+      : signRoot(inputs.org_id, inputs.root.caveats, holder.pub, kp(inputs.org_keys[0]!));
 
-    // ─── re-sign invocation ──────────────────────────────────────
-    const signedInv = signInvocation(
-      fx.inputs.inv_unsigned,
-      hexToBytes(fx.inputs.user_priv_hex),
-    );
+    let token: Token = { v: 2, org_id: inputs.org_id, blocks: [root], proof: inputs.root.holder.priv_hex };
+    for (const b of inputs.blocks) token = attenuate(token, b.caveats, kp(b.next));
 
-    // ─── signing bytes ───────────────────────────────────────────
-    const uaMsg = signingBytes(
-      fx.inputs.ua_unsigned as unknown as Record<string, unknown>,
-      "org_sig",
-    );
-    const invMsg = signingBytes(
-      fx.inputs.inv_unsigned as unknown as Record<string, unknown>,
-      "user_sig",
-    );
-    assert.equal(bytesToHex(uaMsg), fx.expected.ua_signing_bytes_hex,
-      "ua_signing_bytes_hex");
-    assert.equal(bytesToHex(invMsg), fx.expected.inv_signing_bytes_hex,
-      "inv_signing_bytes_hex");
-
-    // ─── canonical JSON of signed layers ─────────────────────────
-    assert.equal(
-      jcs(stripField(signedUa, "org_sig")),
-      fx.expected.ua_canonical_json,
-      "ua_canonical_json",
-    );
-    assert.equal(
-      jcs(stripField(signedInv, "user_sig")),
-      fx.expected.inv_canonical_json,
-      "inv_canonical_json",
-    );
-
-    // ─── attenuations ────────────────────────────────────────────
-    const atts: Attenuation[] = [];
-    let prevSig = invocationSigBytes(signedInv);
-    fx.inputs.atts_unsigned.forEach((caveats, i) => {
-      const exp = fx.expected.attenuation_hmac_inputs[i];
-      assert.ok(exp, `expected attenuation_hmac_inputs[${i}] present`);
-
-      assert.equal(bytesToHex(prevSig), exp.prev_sig_hex,
-        `attenuation ${i} prev_sig_hex`);
-      const caveatsCanonical = jcs(caveats as unknown as Record<string, unknown>);
-      assert.equal(caveatsCanonical, exp.caveats_canonical_json,
-        `attenuation ${i} caveats_canonical_json`);
-      const hmacInput = utf8Bytes(caveatsCanonical);
-      assert.equal(bytesToHex(hmacInput), exp.hmac_input_hex,
-        `attenuation ${i} hmac_input_hex`);
-      const hmacOutput = computeAttenuationHmac(prevSig, caveats);
-      assert.equal(bytesToHex(hmacOutput), exp.hmac_output_hex,
-        `attenuation ${i} hmac_output_hex`);
-
-      atts.push(attenuate(prevSig, caveats));
-      prevSig = hexToBytes(atts[i]!.hmac);
+    assert.equal(token.blocks.length, expected.blocks.length);
+    token.blocks.forEach((b, i) => {
+      const prev = i === 0 ? null : token.blocks[i - 1]!;
+      const want = expected.blocks[i]!;
+      assert.equal(prev ? blockHash(prev) : "", want.prev_hex, `block ${i} prev_hex`);
+      assert.equal(bytesToHex(blockSigningBytes(inputs.org_id, prev, b.caveats, b.next_key)), want.signing_bytes_hex,
+        `block ${i} signing_bytes_hex`);
+      assert.equal(jcs(b), want.block_canonical_json, `block ${i} block_canonical_json`);
     });
+    assert.equal(jcs(token), expected.token_canonical_json, "token_canonical_json");
+    assert.equal(encodeToken(token), expected.token_b64url, "token_b64url");
 
-    // ─── full macaroon ───────────────────────────────────────────
-    const macaroon: Macaroon = {
-      v: 1,
-      org_id: fx.inputs.org_id,
-      user_authorization: signedUa,
-      invocation: signedInv,
-      attenuations: atts,
-    };
-    const macaroonCanonical = jcs(macaroon as unknown as Record<string, unknown>);
-    assert.equal(macaroonCanonical, fx.expected.macaroon_canonical_json,
-      "macaroon_canonical_json");
-    const macaroonB64 = bytesToBase64url(utf8Bytes(macaroonCanonical));
-    assert.equal(macaroonB64, fx.expected.macaroon_b64url, "macaroon_b64url");
-
-    // ─── round-trip verify ───────────────────────────────────────
-    const claims = verify(
-      macaroonB64,
-      fx.inputs.policy,
-      new Date(Date.parse(fx.inputs.inv_unsigned.iat) + 1000), // 1s after iat: in window
-    );
-    assert.equal(claims.org_id, fx.expected.claims.org_id);
-    assert.equal(claims.user_id, fx.expected.claims.user_id);
-    assert.equal(claims.agent_name, fx.expected.claims.agent_name);
-    assert.equal(claims.run_id, fx.expected.claims.run_id);
-    assert.deepEqual(claims.effective_caveats, fx.expected.claims.effective_caveats);
-    assert.equal(claims.ua_nonce, fx.expected.claims.ua_nonce);
-    assert.deepEqual(claims.ua_budget, fx.expected.claims.ua_budget);
-    assert.deepEqual(claims.permitted_realms, fx.expected.claims.permitted_realms);
-    assert.deepEqual(claims.nonces, fx.expected.claims.nonces);
-    assert.equal(claims.iat, fx.expected.claims.iat);
+    assert.deepEqual(verify(expected.token_b64url, inputs.policy, now), expected.claims);
   });
-}
 
-function stripField(obj: Record<string, unknown>, field: string): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const k of Object.keys(obj)) if (k !== field) out[k] = obj[k];
-  return out;
+  for (const t of expected.tampered) {
+    test(`fixture ${file}: ${t.case} → ${t.code}`, () => {
+      assert.throws(
+        () => verify(t.token_b64url, inputs.policy, now),
+        (err: unknown) => err instanceof VerifyError && err.code === t.code,
+      );
+    });
+  }
 }

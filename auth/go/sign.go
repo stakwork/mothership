@@ -1,120 +1,128 @@
 package macaroon
 
-// Layer-level signers — Go mirror of auth/ts/src/sign.ts.
+// Building a chain — Go mirror of auth/ts/src/sign.ts. Block 0 is
+// signed by the org; every later block by the key the block before it
+// named. Attenuate is the one operation an agent needs.
 //
-// Phase 1 custodial mode: the issuer (Hive today, or a standalone
-// reference issuer in Go) holds both org and user private keys and
-// produces both layer signatures. Phase 2+ moves the user sign step
-// to the user's device; the API stays the same — only which key the
-// caller hands in changes.
-//
-// Cross-language byte-equivalence with TS: both Ed25519 (RFC 8032)
-// and ECDSA-secp256k1-SHA256 (RFC 6979 + BIP 62 low-s) are
-// deterministic in the implementations we use here, so a fixture
-// signed in TS and re-signed in Go produces identical bytes. The
-// fixture suite asserts this.
+// Ed25519 (RFC 8032) and ECDSA-secp256k1 (RFC 6979, low-s) are
+// deterministic in both implementations, so a fixture signed in TS and
+// re-signed here produces identical bytes.
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"sort"
 )
 
-// MultisigSigner is one participating signer in a multisig org_sig.
-// KeyIndex must match the position of the signer's pubkey in the
-// trust-registry policy's Keys array; the verifier rejects out-of-
-// range or mismatched-alg entries.
+// signingInput is what a block's signature covers.
+type signingInput struct {
+	OrgID   string  `json:"org_id"`
+	Prev    string  `json:"prev"`
+	Caveats Caveats `json:"caveats"`
+	NextKey PubKey  `json:"next_key"`
+}
+
+// BlockSigningBytes is utf8(JCS({org_id, prev, caveats, next_key})),
+// where prev is "" for block 0 (prev == nil) and BlockHash of the block
+// before otherwise.
+func BlockSigningBytes(orgID string, prev *Block, c Caveats, next PubKey) ([]byte, error) {
+	in := signingInput{OrgID: orgID, Caveats: c, NextKey: next}
+	if prev != nil {
+		h, err := BlockHash(*prev)
+		if err != nil {
+			return nil, err
+		}
+		in.Prev = h
+	}
+	return JCS(in)
+}
+
+// BlockHash is hex(sha256(JCS(block))): the whole block, signature
+// included.
+func BlockHash(b Block) (string, error) {
+	canonical, err := JCS(b)
+	if err != nil {
+		return "", fmt.Errorf("block hash: %w", err)
+	}
+	sum := sha256.Sum256(canonical)
+	return BytesToHex(sum[:]), nil
+}
+
+// SignRoot makes block 0 under a single-key org: it hands the chain to
+// holder, usually a person's key, whose private half is the proof of a
+// token made of this block alone.
+func SignRoot(orgID string, c Caveats, holder PubKey, org KeyPair) (Block, error) {
+	msg, err := BlockSigningBytes(orgID, nil, c, holder)
+	if err != nil {
+		return Block{}, err
+	}
+	sig, err := SignWith(org.Alg, org.Priv, msg)
+	if err != nil {
+		return Block{}, fmt.Errorf("sign root: %w", err)
+	}
+	return Block{Caveats: c, NextKey: holder, Sig: Sig{Alg: org.Alg, Sig: BytesToHex(sig)}}, nil
+}
+
+// MultisigSigner is one participating org signer. KeyIndex is the
+// signer's position in the policy's Keys.
 type MultisigSigner struct {
 	KeyIndex int
-	PrivKey  []byte // 32-byte secp256k1 private scalar
+	Key      KeyPair
 }
 
-// SignUserAuthorizationSingle signs a user_authorization envelope with
-// a single secp256k1 key. The caller passes a UserAuthorization with
-// OrgSig at its zero value; this function returns a new copy with
-// OrgSig populated. Custodial phase 1 uses this; phase 3+ uses
-// SignUserAuthorizationMultisig once the org adopts an m-of-n policy.
-func SignUserAuthorizationSingle(unsigned UserAuthorization, orgPrivKey []byte) (UserAuthorization, error) {
-	msg, err := JCSStripField(unsigned, "org_sig")
+// SignRootMultisig makes block 0 under an m-of-n org. The threshold is
+// checked when the token is verified.
+func SignRootMultisig(orgID string, c Caveats, holder PubKey, signers []MultisigSigner) (Block, error) {
+	msg, err := BlockSigningBytes(orgID, nil, c, holder)
 	if err != nil {
-		return UserAuthorization{}, fmt.Errorf("sign ua: jcs strip: %w", err)
+		return Block{}, err
 	}
-	sigBytes, err := EcdsaSecp256k1Sign(orgPrivKey, msg)
-	if err != nil {
-		return UserAuthorization{}, fmt.Errorf("sign ua: ecdsa: %w", err)
-	}
-	out := unsigned
-	out.OrgSig = Sig{
-		Alg: AlgEcdsaSecp256k1Sha256,
-		Sig: BytesToHex(sigBytes),
-	}
-	return out, nil
-}
-
-// SignUserAuthorizationMultisig signs a user_authorization envelope
-// under an m-of-n multisig policy. Each participating signer is
-// identified by its KeyIndex into the policy's Keys array. Signers
-// are sorted by KeyIndex ascending so the assembled multisig-v1
-// envelope is deterministic.
-//
-// Threshold enforcement happens at verify time — this function will
-// happily produce an under-threshold envelope, which the verifier
-// will then reject. That's by design: the signer's job is to produce
-// bytes, not to gate on policy.
-func SignUserAuthorizationMultisig(unsigned UserAuthorization, signers []MultisigSigner) (UserAuthorization, error) {
-	msg, err := JCSStripField(unsigned, "org_sig")
-	if err != nil {
-		return UserAuthorization{}, fmt.Errorf("sign ua multisig: jcs strip: %w", err)
-	}
-	// Sort by KeyIndex ascending without mutating caller's slice.
-	sorted := make([]MultisigSigner, len(signers))
-	copy(sorted, signers)
-	for i := 1; i < len(sorted); i++ {
-		for j := i; j > 0 && sorted[j-1].KeyIndex > sorted[j].KeyIndex; j-- {
-			sorted[j-1], sorted[j] = sorted[j], sorted[j-1]
-		}
-	}
-	subSigs := make([]SubSig, 0, len(sorted))
+	sorted := append([]MultisigSigner(nil), signers...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].KeyIndex < sorted[j].KeyIndex })
+	subs := make([]SubSig, 0, len(sorted))
 	for _, s := range sorted {
-		sigBytes, err := EcdsaSecp256k1Sign(s.PrivKey, msg)
+		sig, err := SignWith(s.Key.Alg, s.Key.Priv, msg)
 		if err != nil {
-			return UserAuthorization{}, fmt.Errorf("sign ua multisig: signer %d: %w", s.KeyIndex, err)
+			return Block{}, fmt.Errorf("sign root multisig[%d]: %w", s.KeyIndex, err)
 		}
-		subSigs = append(subSigs, SubSig{
-			KeyIndex: s.KeyIndex,
-			Alg:      AlgEcdsaSecp256k1Sha256,
-			Sig:      BytesToHex(sigBytes),
-		})
+		subs = append(subs, SubSig{KeyIndex: s.KeyIndex, Alg: s.Key.Alg, Sig: BytesToHex(sig)})
 	}
-	out := unsigned
-	out.OrgSig = Sig{
-		Alg:  AlgMultisigV1,
-		Sigs: subSigs,
-	}
-	return out, nil
+	return Block{Caveats: c, NextKey: holder, Sig: Sig{Alg: AlgMultisigV1, Sigs: subs}}, nil
 }
 
-// SignInvocation signs an invocation envelope with the user's Ed25519
-// private key (passed as a 32-byte seed). Returns a new Invocation
-// with UserSig populated.
-func SignInvocation(unsigned Invocation, userPrivKey []byte) (Invocation, error) {
-	msg, err := JCSStripField(unsigned, "user_sig")
+// Attenuate appends one block: signed with t.Proof (the key the last
+// block named), naming next, and returns a new token whose proof is
+// next's private key. t is not changed.
+func Attenuate(t Token, c Caveats, next KeyPair) (Token, error) {
+	if len(t.Blocks) == 0 {
+		return Token{}, fmt.Errorf("attenuate: the token has no blocks")
+	}
+	last := t.Blocks[len(t.Blocks)-1]
+	msg, err := BlockSigningBytes(t.OrgID, &last, c, next.Pub)
 	if err != nil {
-		return Invocation{}, fmt.Errorf("sign invocation: jcs strip: %w", err)
+		return Token{}, err
 	}
-	sigBytes, err := Ed25519Sign(userPrivKey, msg)
+	proof, err := HexToBytes(t.Proof)
 	if err != nil {
-		return Invocation{}, fmt.Errorf("sign invocation: ed25519: %w", err)
+		return Token{}, fmt.Errorf("attenuate: proof: %w", err)
 	}
-	out := unsigned
-	out.UserSig = Sig{
-		Alg: AlgEd25519,
-		Sig: BytesToHex(sigBytes),
+	sig, err := SignWith(last.NextKey.Alg, proof, msg)
+	if err != nil {
+		return Token{}, fmt.Errorf("attenuate: %w", err)
 	}
-	return out, nil
+	blocks := append(append([]Block(nil), t.Blocks...), Block{
+		Caveats: c,
+		NextKey: next.Pub,
+		Sig:     Sig{Alg: last.NextKey.Alg, Sig: BytesToHex(sig)},
+	})
+	return Token{V: 2, OrgID: t.OrgID, Blocks: blocks, Proof: BytesToHex(next.Priv)}, nil
 }
 
-// InvocationSigBytes returns the raw bytes of an invocation's
-// user_sig.sig, for use as the HMAC key of the first attenuation in
-// the chain.
-func InvocationSigBytes(inv Invocation) ([]byte, error) {
-	return HexToBytes(inv.UserSig.Sig)
+// EncodeToken is the wire form: base64url(JCS(token)), unpadded.
+func EncodeToken(t Token) (string, error) {
+	canonical, err := JCS(t)
+	if err != nil {
+		return "", fmt.Errorf("encode token: %w", err)
+	}
+	return BytesToBase64url(canonical), nil
 }

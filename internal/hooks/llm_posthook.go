@@ -20,7 +20,7 @@ import (
 //
 // Phase-6 accounting: when a verified macaroon stamped claims on the
 // context, every completed call feeds the Redis accumulators
-// (cost:run / steps:run / cost:ua / cost:agent / tools:run) through
+// (cost:run / steps:run / cost:agent / tools:run) through
 // auth.ApplyToLLMPost. An errored call accounts cost=0 but still
 // counts the step — the run burned a call slot even if the provider
 // returned nothing billable.

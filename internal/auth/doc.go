@@ -18,12 +18,13 @@
 //   - kill.go         KillRun/KillAgent + Unkill*, GetRunState/GetAgentState —
 //     the admin primitives behind /_plugin/{runs,agents}/:id/{kill,state}
 //   - capwalk.go      CheckCaps() — phase-6 PIPELINE 2: per-run cost/steps
-//     for every chain layer, UA envelope, realm cap, agent bucket (402s;
+//     and realm cap for every block (block 0 is the person's grant),
+//     agent bucket (402s;
 //     gated by enforce_budgets)
 //   - ttl.go          clamp(exp-now+1h, 1h, 7d) shared by revocation + accumulators
 //   - enforcement.go  Evaluate() + ApplyToLLMPre() — hook glue
 //   - accumulator.go  ApplyToLLMPost() — phase-6 PostLLMHook pipeline:
-//     cost:run / steps:run per chain layer, cost:ua envelope,
+//     cost:run / steps:run per chain layer (block 0 included),
 //     cost:agent windowed buckets, tools:run history
 //   - pricing.go      PriceCall() — model_pricing table → dollars
 //   - admin.go        revoke primitives behind /_plugin/revoke/*

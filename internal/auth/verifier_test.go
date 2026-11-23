@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -90,8 +91,8 @@ func TestVerify_WrongSigningKey_Rejected(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected verification failure for wrong key")
 	}
-	if err.Code != string(macaroon.ErrInvalidUserAuthorization) {
-		t.Fatalf("want invalid_user_authorization, got %s", err.Code)
+	if err.Code != string(macaroon.ErrInvalidRootSignature) {
+		t.Fatalf("want invalid_root_signature, got %s", err.Code)
 	}
 }
 
@@ -105,8 +106,8 @@ func TestVerify_ExpiredUA(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected expiry rejection")
 	}
-	if err.Code != string(macaroon.ErrUserAuthorizationExpired) {
-		t.Fatalf("want user_authorization_expired, got %s", err.Code)
+	if err.Code != string(macaroon.ErrMacaroonExpired) {
+		t.Fatalf("want macaroon_expired, got %s", err.Code)
 	}
 }
 
@@ -163,8 +164,8 @@ func TestVerify_GraceKey_RejectedAfterWindow(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected rejection: grace window already expired")
 	}
-	if err.Code != string(macaroon.ErrInvalidUserAuthorization) {
-		t.Fatalf("want invalid_user_authorization, got %s", err.Code)
+	if err.Code != string(macaroon.ErrInvalidRootSignature) {
+		t.Fatalf("want invalid_root_signature, got %s", err.Code)
 	}
 }
 
@@ -184,5 +185,66 @@ func TestAdapterError_Error(t *testing.T) {
 	e := &AdapterError{Code: "x", HTTPStatus: 401, Message: "y"}
 	if got := e.Error(); !strings.Contains(got, "x") || !strings.Contains(got, "y") {
 		t.Fatalf("Error() missing fields: %s", got)
+	}
+}
+
+// An org can sign block 0 with an Ed25519 key: the registry stores 64
+// hex characters and the verifier reads the algorithm from the length.
+func TestVerify_Ed25519OrgKey(t *testing.T) {
+	org, err := macaroon.KeyPairFromPrivate(macaroon.AlgEd25519, mustHexBytes(strings.Repeat("33", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := trust.New()
+	if err := reg.Upsert(trust.Org{OrgID: testOrgID, Pubkey: org.Pub.Key, IssuerURL: "https://hive.test"}, trust.SeedSourceAPI); err != nil {
+		t.Fatalf("seed registry: %v", err)
+	}
+	now := time.Now()
+	person, err := macaroon.KeyPairFromPrivate(macaroon.AlgEd25519, testUserPriv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := macaroon.SignRoot(testOrgID, macaroon.Caveats{
+		RunID: "ua_ed25519", UserID: testUserID,
+		IAT: now.Add(-time.Minute).UTC().Format(time.RFC3339), Exp: now.Add(time.Hour).UTC().Format(time.RFC3339),
+		Nonce: "cccc000000000000000000000000cccc",
+	}, person.Pub, org)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := macaroon.EncodeToken(macaroon.Token{V: 2, OrgID: testOrgID, Blocks: []macaroon.Block{root}, Proof: macaroon.BytesToHex(person.Priv)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, vErr := Verify(encoded, reg, now)
+	if vErr != nil {
+		t.Fatalf("verify: %v", vErr)
+	}
+	if claims.UserID != testUserID || claims.RunID != "ua_ed25519" {
+		t.Fatalf("claims: %+v", claims)
+	}
+}
+
+// The v1 unwrap, through the adapter: a token with its last block
+// dropped keeps a proof that no longer matches, and is refused.
+func TestVerify_TruncatedTokenRefused(t *testing.T) {
+	reg := newTestRegistry(t)
+	now := time.Now()
+	raw, err := macaroon.Base64urlToBytes(buildMacaroon(t, defaultMacaroonOptions(now)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tok macaroon.Token
+	if err := json.Unmarshal(raw, &tok); err != nil {
+		t.Fatal(err)
+	}
+	tok.Blocks = tok.Blocks[:1]
+	encoded, err := macaroon.EncodeToken(tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, vErr := Verify(encoded, reg, now)
+	if vErr == nil || vErr.Code != string(macaroon.ErrInvalidProof) {
+		t.Fatalf("want invalid_proof, got %+v", vErr)
 	}
 }

@@ -1,0 +1,88 @@
+{
+  "description": "block 0 only: the org hands the chain to a person's key; the proof is the person's private key",
+  "inputs": {
+    "org_id": "org_acme",
+    "policy": {
+      "type": "single",
+      "key": {
+        "alg": "ecdsa-secp256k1-sha256",
+        "key": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+      }
+    },
+    "org_keys": [
+      {
+        "alg": "ecdsa-secp256k1-sha256",
+        "priv_hex": "0000000000000000000000000000000000000000000000000000000000000001"
+      }
+    ],
+    "root": {
+      "caveats": {
+        "run_id": "ua_01h8alicegrant000000000000",
+        "user_id": "u_alice",
+        "agents": [
+          "coder",
+          "repair-agent"
+        ],
+        "iat": "2026-05-14T09:00:00Z",
+        "exp": "2026-06-14T09:00:00Z",
+        "nonce": "9f4e1c8b2a3d4e5f6a7b8c9d0e1f2a3b"
+      },
+      "holder": {
+        "alg": "ed25519",
+        "priv_hex": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    },
+    "blocks": [],
+    "now": "2026-05-14T10:00:01Z"
+  },
+  "expected": {
+    "blocks": [
+      {
+        "prev_hex": "",
+        "signing_bytes_hex": "7b2263617665617473223a7b226167656e7473223a5b22636f646572222c227265706169722d6167656e74225d2c22657870223a22323032362d30362d31345430393a30303a30305a222c22696174223a22323032362d30352d31345430393a30303a30305a222c226e6f6e6365223a223966346531633862326133643465356636613762386339643065316632613362222c2272756e5f6964223a2275615f30316838616c6963656772616e74303030303030303030303030222c22757365725f6964223a22755f616c696365227d2c226e6578745f6b6579223a7b22616c67223a2265643235353139222c226b6579223a2264303461623233323734326262346162336131333638626434363135653465366430323234616237316130313662616638353230613333326339373738373337227d2c226f72675f6964223a226f72675f61636d65222c2270726576223a22227d",
+        "block_canonical_json": "{\"caveats\":{\"agents\":[\"coder\",\"repair-agent\"],\"exp\":\"2026-06-14T09:00:00Z\",\"iat\":\"2026-05-14T09:00:00Z\",\"nonce\":\"9f4e1c8b2a3d4e5f6a7b8c9d0e1f2a3b\",\"run_id\":\"ua_01h8alicegrant000000000000\",\"user_id\":\"u_alice\"},\"next_key\":{\"alg\":\"ed25519\",\"key\":\"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737\"},\"sig\":{\"alg\":\"ecdsa-secp256k1-sha256\",\"sig\":\"f1e4d83e1799bb7b1f91a7c076d3dcd319820e8c5d98a5a9efcbe03dccf8e22e7deae247a9935ee86871e92e592bb5a1f75b27ed5a459134a58e1f91c6a2eefb\"}}"
+      }
+    ],
+    "token_canonical_json": "{\"blocks\":[{\"caveats\":{\"agents\":[\"coder\",\"repair-agent\"],\"exp\":\"2026-06-14T09:00:00Z\",\"iat\":\"2026-05-14T09:00:00Z\",\"nonce\":\"9f4e1c8b2a3d4e5f6a7b8c9d0e1f2a3b\",\"run_id\":\"ua_01h8alicegrant000000000000\",\"user_id\":\"u_alice\"},\"next_key\":{\"alg\":\"ed25519\",\"key\":\"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737\"},\"sig\":{\"alg\":\"ecdsa-secp256k1-sha256\",\"sig\":\"f1e4d83e1799bb7b1f91a7c076d3dcd319820e8c5d98a5a9efcbe03dccf8e22e7deae247a9935ee86871e92e592bb5a1f75b27ed5a459134a58e1f91c6a2eefb\"}}],\"org_id\":\"org_acme\",\"proof\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"v\":2}",
+    "token_b64url": "eyJibG9ja3MiOlt7ImNhdmVhdHMiOnsiYWdlbnRzIjpbImNvZGVyIiwicmVwYWlyLWFnZW50Il0sImV4cCI6IjIwMjYtMDYtMTRUMDk6MDA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQwOTowMDowMFoiLCJub25jZSI6IjlmNGUxYzhiMmEzZDRlNWY2YTdiOGM5ZDBlMWYyYTNiIiwicnVuX2lkIjoidWFfMDFoOGFsaWNlZ3JhbnQwMDAwMDAwMDAwMDAiLCJ1c2VyX2lkIjoidV9hbGljZSJ9LCJuZXh0X2tleSI6eyJhbGciOiJlZDI1NTE5Iiwia2V5IjoiZDA0YWIyMzI3NDJiYjRhYjNhMTM2OGJkNDYxNWU0ZTZkMDIyNGFiNzFhMDE2YmFmODUyMGEzMzJjOTc3ODczNyJ9LCJzaWciOnsiYWxnIjoiZWNkc2Etc2VjcDI1NmsxLXNoYTI1NiIsInNpZyI6ImYxZTRkODNlMTc5OWJiN2IxZjkxYTdjMDc2ZDNkY2QzMTk4MjBlOGM1ZDk4YTVhOWVmY2JlMDNkY2NmOGUyMmU3ZGVhZTI0N2E5OTM1ZWU4Njg3MWU5MmU1OTJiYjVhMWY3NWIyN2VkNWE0NTkxMzRhNThlMWY5MWM2YTJlZWZiIn19XSwib3JnX2lkIjoib3JnX2FjbWUiLCJwcm9vZiI6IjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiLCJ2IjoyfQ",
+    "claims": {
+      "org_id": "org_acme",
+      "user_id": "u_alice",
+      "agent_name": "",
+      "lineage": [],
+      "run_id": "ua_01h8alicegrant000000000000",
+      "iat": "2026-05-14T09:00:00Z",
+      "exp": "2026-06-14T09:00:00Z",
+      "chain": [
+        {
+          "run_id": "ua_01h8alicegrant000000000000",
+          "max_cost_usd": 0,
+          "max_steps": 0,
+          "realms": null,
+          "exp": "2026-06-14T09:00:00Z"
+        }
+      ],
+      "nonces": [
+        "9f4e1c8b2a3d4e5f6a7b8c9d0e1f2a3b"
+      ],
+      "permitted_realms": null
+    },
+    "tampered": [
+      {
+        "case": "proof from another key",
+        "token_b64url": "eyJibG9ja3MiOlt7ImNhdmVhdHMiOnsiYWdlbnRzIjpbImNvZGVyIiwicmVwYWlyLWFnZW50Il0sImV4cCI6IjIwMjYtMDYtMTRUMDk6MDA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQwOTowMDowMFoiLCJub25jZSI6IjlmNGUxYzhiMmEzZDRlNWY2YTdiOGM5ZDBlMWYyYTNiIiwicnVuX2lkIjoidWFfMDFoOGFsaWNlZ3JhbnQwMDAwMDAwMDAwMDAiLCJ1c2VyX2lkIjoidV9hbGljZSJ9LCJuZXh0X2tleSI6eyJhbGciOiJlZDI1NTE5Iiwia2V5IjoiZDA0YWIyMzI3NDJiYjRhYjNhMTM2OGJkNDYxNWU0ZTZkMDIyNGFiNzFhMDE2YmFmODUyMGEzMzJjOTc3ODczNyJ9LCJzaWciOnsiYWxnIjoiZWNkc2Etc2VjcDI1NmsxLXNoYTI1NiIsInNpZyI6ImYxZTRkODNlMTc5OWJiN2IxZjkxYTdjMDc2ZDNkY2QzMTk4MjBlOGM1ZDk4YTVhOWVmY2JlMDNkY2NmOGUyMmU3ZGVhZTI0N2E5OTM1ZWU4Njg3MWU5MmU1OTJiYjVhMWY3NWIyN2VkNWE0NTkxMzRhNThlMWY5MWM2YTJlZWZiIn19XSwib3JnX2lkIjoib3JnX2FjbWUiLCJwcm9vZiI6Ijk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTkiLCJ2IjoyfQ",
+        "code": "invalid_proof"
+      },
+      {
+        "case": "block 0's caveats edited",
+        "token_b64url": "eyJibG9ja3MiOlt7ImNhdmVhdHMiOnsiYWdlbnRzIjpbImNvZGVyIiwicmVwYWlyLWFnZW50Il0sImV4cCI6IjIwOTktMDEtMDFUMDA6MDA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQwOTowMDowMFoiLCJub25jZSI6IjlmNGUxYzhiMmEzZDRlNWY2YTdiOGM5ZDBlMWYyYTNiIiwicnVuX2lkIjoidWFfMDFoOGFsaWNlZ3JhbnQwMDAwMDAwMDAwMDAiLCJ1c2VyX2lkIjoidV9hbGljZSJ9LCJuZXh0X2tleSI6eyJhbGciOiJlZDI1NTE5Iiwia2V5IjoiZDA0YWIyMzI3NDJiYjRhYjNhMTM2OGJkNDYxNWU0ZTZkMDIyNGFiNzFhMDE2YmFmODUyMGEzMzJjOTc3ODczNyJ9LCJzaWciOnsiYWxnIjoiZWNkc2Etc2VjcDI1NmsxLXNoYTI1NiIsInNpZyI6ImYxZTRkODNlMTc5OWJiN2IxZjkxYTdjMDc2ZDNkY2QzMTk4MjBlOGM1ZDk4YTVhOWVmY2JlMDNkY2NmOGUyMmU3ZGVhZTI0N2E5OTM1ZWU4Njg3MWU5MmU1OTJiYjVhMWY3NWIyN2VkNWE0NTkxMzRhNThlMWY5MWM2YTJlZWZiIn19XSwib3JnX2lkIjoib3JnX2FjbWUiLCJwcm9vZiI6IjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiLCJ2IjoyfQ",
+        "code": "invalid_root_signature"
+      },
+      {
+        "case": "next block names an agent outside agents",
+        "token_b64url": "eyJibG9ja3MiOlt7ImNhdmVhdHMiOnsiYWdlbnRzIjpbImNvZGVyIiwicmVwYWlyLWFnZW50Il0sImV4cCI6IjIwMjYtMDYtMTRUMDk6MDA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQwOTowMDowMFoiLCJub25jZSI6IjlmNGUxYzhiMmEzZDRlNWY2YTdiOGM5ZDBlMWYyYTNiIiwicnVuX2lkIjoidWFfMDFoOGFsaWNlZ3JhbnQwMDAwMDAwMDAwMDAiLCJ1c2VyX2lkIjoidV9hbGljZSJ9LCJuZXh0X2tleSI6eyJhbGciOiJlZDI1NTE5Iiwia2V5IjoiZDA0YWIyMzI3NDJiYjRhYjNhMTM2OGJkNDYxNWU0ZTZkMDIyNGFiNzFhMDE2YmFmODUyMGEzMzJjOTc3ODczNyJ9LCJzaWciOnsiYWxnIjoiZWNkc2Etc2VjcDI1NmsxLXNoYTI1NiIsInNpZyI6ImYxZTRkODNlMTc5OWJiN2IxZjkxYTdjMDc2ZDNkY2QzMTk4MjBlOGM1ZDk4YTVhOWVmY2JlMDNkY2NmOGUyMmU3ZGVhZTI0N2E5OTM1ZWU4Njg3MWU5MmU1OTJiYjVhMWY3NWIyN2VkNWE0NTkxMzRhNThlMWY5MWM2YTJlZWZiIn19LHsiY2F2ZWF0cyI6eyJhZ2VudCI6ImludHJ1ZGVyIiwiZXhwIjoiMjAyNi0wNS0xNFQxMDoxMDowMFoiLCJpYXQiOiIyMDI2LTA1LTE0VDEwOjAwOjAwWiIsIm1heF9jb3N0X3VzZCI6NSwibWF4X3N0ZXBzIjoxMDAsIm5vbmNlIjoiN2MyYTNiNGM1ZDZlN2Y4YTliMGMxZDJlM2Y0YTViNmMiLCJydW5faWQiOiJyXzAxaDhhbHBoYXJvb3RpbnZvY2F0aW9uMDAifSwibmV4dF9rZXkiOnsiYWxnIjoiZWQyNTUxOSIsImtleSI6IjMzMmViZThkMjdjYjczMjNiM2E0MDFjMWMxM2I1ZGQ2NGJjY2MwZTEwZWNkYTFjMmI1ZDExYTAzNzc5YTg1ZTUifSwic2lnIjp7ImFsZyI6ImVkMjU1MTkiLCJzaWciOiJjNWZlMzI5N2VhNGIzNWMyOGUyYzNkYWE2YjZmM2JkMWNlMWUzNGJlN2FiZjRhMzJhYjA5MjIyODczZThlZTgyMmI1MDlkNDFjYmMyNTMwMzY3ZTg1MzQxNDE2YWJjZjNiZGU4YjhiZjY1YTc5YzcwYTY4OTM5MjEwYjc5Y2QwMyJ9fV0sIm9yZ19pZCI6Im9yZ19hY21lIiwicHJvb2YiOiI5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5IiwidiI6Mn0",
+        "code": "agent_not_permitted"
+      }
+    ]
+  }
+}

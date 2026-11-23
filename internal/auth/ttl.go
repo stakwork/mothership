@@ -5,8 +5,8 @@ import (
 )
 
 // runKeyTTL implements phase-6's clamp(macaroon.exp - now + 1h, 1h, 7d)
-// formula for the per-run Redis keys (cost:run, steps:run, tools:run)
-// — and also for cost:ua:<nonce> when budget tracking lands. See
+// formula for the per-run Redis keys (cost:run, steps:run, tools:run,
+// meta:run), block 0's grant included. See
 // plans/phases/phase-6-plugin-enforcement.md "TTL policy".
 //
 //   - The +1h grace ensures a PostHook firing right at exp doesn't

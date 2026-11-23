@@ -14,17 +14,17 @@
 #   1. PUT /_plugin/trust/realm_id — set, clear, bad shape, GET 405,
 #      no-auth 401.
 #   2. /status surfaces realm_id when set (omitempty otherwise).
-#   3. Single-swarm path: no swarm realm_id + no macaroon realm_budgets
+#   3. Single-swarm path: no swarm realm_id + no macaroon realms
 #      → membership check is a no-op, verify ok.
 #   4. Multi-realm permitted path: swarm realm_id IS a key in
-#      macaroon.realm_budgets → verify ok with non-empty
+#      macaroon.realms → verify ok with non-empty
 #      permitted_realms.
 #   5. Multi-realm NOT permitted: swarm realm_id NOT in
-#      macaroon.realm_budgets → "realm_not_permitted" in the log line.
+#      macaroon.realms → "realm_not_permitted" in the log line.
 #   6. Configuration error: multi-realm macaroon arrives at a swarm
 #      with no realm_id → "realm_not_configured" in the log line.
 #   7. Swarm-id-only: swarm has realm_id but macaroon has no
-#      realm_budgets → verify ok (the org didn't scope per-realm).
+#      realms → verify ok (the org didn't scope per-realm).
 #
 # All paths run against the gateway in shadow mode (the default for
 # the local docker-compose); the log line tells us what the adapter
@@ -91,19 +91,19 @@ expect_contains() {
   fi
 }
 
-# mint <run_id> [realm_budgets_json]
+# mint <run_id> [realms_json]
 #
 # Wraps mint-macaroon.ts. Returns the base64url macaroon on stdout.
 mint() {
   local run_id="$1"
-  local realm_budgets="${2:-}"
-  if [ -n "$realm_budgets" ]; then
+  local realms="${2:-}"
+  if [ -n "$realms" ]; then
     (
       cd "$TS_DIR" && \
       "$TSX" "$SCRIPT_DIR/mint-macaroon.ts" \
         --org-id "$ORG_ID" --user-id u_alice --agent coder \
         --run-id "$run_id" --max-cost-usd 1.00 --max-steps 50 --ttl-seconds 600 \
-        --realm-budgets "$realm_budgets"
+        --realms "$realms"
     )
   else
     (
@@ -243,7 +243,7 @@ expect_eq "no auth → 401" "401" "$status"
 
 # --- 2. single-swarm path (no realm fields anywhere) ---------------------
 
-section "2. single-swarm path: no swarm realm_id, no macaroon realm_budgets"
+section "2. single-swarm path: no swarm realm_id, no macaroon realms"
 
 set_realm_id ""
 RUN_ID="r_p11simple_$(date +%s)_$RANDOM"
@@ -256,11 +256,11 @@ expect_contains "single-swarm: empty permitted_realms" "permitted_realms=[]" "$l
 
 # --- 3. multi-realm permitted --------------------------------------------
 
-section "3. multi-realm permitted: swarm.realm_id ∈ macaroon.realm_budgets"
+section "3. multi-realm permitted: swarm.realm_id ∈ macaroon.realms"
 
 set_realm_id "w1"
 RUN_ID="r_p11permit_$(date +%s)_$RANDOM"
-MAC=$(mint "$RUN_ID" '{"w1":{"max_total_usd":50},"w2":{"max_total_usd":20}}')
+MAC=$(mint "$RUN_ID" '{"w1":{"max_cost_usd":50},"w2":{"max_cost_usd":20}}')
 call_with_macaroon "$RUN_ID" "$MAC"
 sleep 1
 line=$(verify_log_for "$RUN_ID")
@@ -269,11 +269,11 @@ expect_contains "multi-realm permitted: permitted_realms surfaced" "permitted_re
 
 # --- 4. multi-realm NOT permitted ----------------------------------------
 
-section "4. multi-realm NOT permitted: swarm.realm_id ∉ macaroon.realm_budgets"
+section "4. multi-realm NOT permitted: swarm.realm_id ∉ macaroon.realms"
 
 set_realm_id "w3"  # swarm claims w3, macaroon authorizes w1+w2
 RUN_ID="r_p11deny_$(date +%s)_$RANDOM"
-MAC=$(mint "$RUN_ID" '{"w1":{"max_total_usd":50},"w2":{"max_total_usd":20}}')
+MAC=$(mint "$RUN_ID" '{"w1":{"max_cost_usd":50},"w2":{"max_cost_usd":20}}')
 call_with_macaroon "$RUN_ID" "$MAC"
 sleep 1
 line=$(verify_log_for "$RUN_ID")
@@ -282,44 +282,43 @@ expect_contains "multi-realm denied: realm_not_permitted code" "code=realm_not_p
 
 # --- 5. macaroon realms only, swarm has no realm_id ----------------------
 
-section "5. macaroon has realm_budgets but swarm has no realm_id"
+section "5. macaroon has realms but swarm has no realm_id"
 
 set_realm_id ""  # swarm has no identity
 RUN_ID="r_p11misconfigured_$(date +%s)_$RANDOM"
-MAC=$(mint "$RUN_ID" '{"w1":{"max_total_usd":50}}')
+MAC=$(mint "$RUN_ID" '{"w1":{"max_cost_usd":50}}')
 call_with_macaroon "$RUN_ID" "$MAC"
 sleep 1
 line=$(verify_log_for "$RUN_ID")
 expect_contains "misconfigured: verify FAIL logged" "verify FAIL" "$line"
 expect_contains "misconfigured: realm_not_configured code" "code=realm_not_configured" "$line"
 
-# --- 6. swarm realm_id but no macaroon realm_budgets ---------------------
+# --- 6. swarm realm_id but no macaroon realms ---------------------
 
-section "6. swarm has realm_id but macaroon has no realm_budgets"
+section "6. swarm has realm_id but macaroon has no realms"
 
 set_realm_id "w1"
 RUN_ID="r_p11nomac_$(date +%s)_$RANDOM"
-MAC=$(mint "$RUN_ID")  # no --realm-budgets
+MAC=$(mint "$RUN_ID")  # no --realms
 call_with_macaroon "$RUN_ID" "$MAC"
 sleep 1
 line=$(verify_log_for "$RUN_ID")
 expect_contains "swarm-id only: verify ok logged" "verify ok" "$line"
 expect_contains "swarm-id only: empty permitted_realms" "permitted_realms=[]" "$line"
 
-# --- 7. cross-realm attenuation (just confirm verify still works) --------
+# --- 7. multi-realm, swarm in a subset (just confirm verify still works) --
 #
-# We don't have an attenuator binary in the tree, so this section just
-# rounds-out coverage by minting a multi-realm macaroon that partially
-# overlaps with the swarm's realm_id and confirming the verifier
-# accepts it. The unit tests in auth/{go,ts}/ cover the
-# attenuation HMAC path byte-for-byte against fixtures
-# 02-one-attenuation, 03-two-attenuations, 07-cross-realm-attenuation.
+# This section rounds out coverage by minting a multi-realm macaroon
+# that partially overlaps with the swarm's realm_id and confirming the
+# verifier accepts it. The unit tests in auth/{go,ts}/ cover sub-agent
+# blocks byte-for-byte against fixtures 03-one-sub-agent,
+# 04-two-sub-agents and 08-cross-realm-sub-agent.
 
 section "7. multi-realm permitted with subset realms"
 
 set_realm_id "w2"  # swarm is w2; macaroon authorizes w1+w2
 RUN_ID="r_p11subset_$(date +%s)_$RANDOM"
-MAC=$(mint "$RUN_ID" '{"w1":{"max_total_usd":50},"w2":{"max_total_usd":20}}')
+MAC=$(mint "$RUN_ID" '{"w1":{"max_cost_usd":50},"w2":{"max_cost_usd":20}}')
 call_with_macaroon "$RUN_ID" "$MAC"
 sleep 1
 line=$(verify_log_for "$RUN_ID")

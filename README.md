@@ -652,7 +652,7 @@ The plugin grows when we add hot enforcement (step 6 onwards):
    cap/kill), written in PostLLMHook. `run_id` still comes from the
    `x-bf-dim-run-id` header pre-macaroon.
 2. **Macaroon verification (step 8)** in `HTTPTransportPreHook` —
-   HMAC + caveats. Short-circuit with
+   signatures + caveats (`auth/go`). Short-circuit with
    `&schemas.HTTPResponse{StatusCode: 401, …}`. Canonicalize the dim
    map from the caveats so `logs.metadata` always reflects the
    cryptographically verified identity.
