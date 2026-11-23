@@ -49,6 +49,7 @@
       "org_id": "org_acme",
       "user_id": "u_alice",
       "agent_name": "",
+      "lineage": [],
       "run_id": "ua_01h8alicegrant000000000000",
       "iat": "2026-05-14T09:00:00Z",
       "exp": "2026-06-14T09:00:00Z",

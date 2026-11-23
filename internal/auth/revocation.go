@@ -31,8 +31,10 @@ const (
 	// parent kills every descendant. TTL 1h (hot operational state).
 	killRunPrefix = "kill:"
 
-	// killAgentPrefix + <agent_name> halts every run whose leaf agent
-	// (Claims.AgentName, i.e. agents[last]) matches. TTL 24h.
+	// killAgentPrefix + <agent_name> halts every run whose chain names
+	// that agent at any depth (Claims.Lineage), so killing an agent
+	// kills its sub-agents too — and a killed agent can't step around
+	// it by appending a block under another name. TTL 24h.
 	killAgentPrefix = "kill:agent:"
 )
 
@@ -97,15 +99,16 @@ func CheckRevocations(ctx context.Context, claims *macaroon.Claims) *AdapterErro
 
 	// Kill switches ride the same round-trip. One EXISTS per distinct
 	// run_id in the chain (outermost first, so a parent kill reports
-	// the parent's id), plus one for the leaf agent name.
+	// the parent's id), plus one per distinct agent in the lineage.
 	runIDs := chainRunIDs(claims)
 	killRunCmds := make([]*redis.IntCmd, len(runIDs))
 	for i, id := range runIDs {
 		killRunCmds[i] = pipe.Exists(pctx, redisclient.Key(killRunPrefix+id))
 	}
-	var killAgentCmd *redis.IntCmd
-	if claims.AgentName != "" {
-		killAgentCmd = pipe.Exists(pctx, redisclient.Key(killAgentPrefix+claims.AgentName))
+	agents := chainAgents(claims)
+	killAgentCmds := make([]*redis.IntCmd, len(agents))
+	for i, a := range agents {
+		killAgentCmds[i] = pipe.Exists(pctx, redisclient.Key(killAgentPrefix+a))
 	}
 
 	if _, err := pipe.Exec(pctx); err != nil && !errors.Is(err, redis.Nil) {
@@ -197,25 +200,40 @@ func CheckRevocations(ctx context.Context, claims *macaroon.Claims) *AdapterErro
 			}
 		}
 	}
-	if killAgentCmd != nil {
-		exists, err := killAgentCmd.Result()
+	for i, cmd := range killAgentCmds {
+		exists, err := cmd.Result()
 		if err != nil {
 			return &AdapterError{
 				Code:       "revocation_check_unavailable",
 				HTTPStatus: 401,
-				Message:    fmt.Sprintf("redis exists kill:agent:%s: %v", claims.AgentName, err),
+				Message:    fmt.Sprintf("redis exists kill:agent:%s: %v", agents[i], err),
 			}
 		}
 		if exists == 1 {
 			return &AdapterError{
 				Code:       "agent_killed",
 				HTTPStatus: 402,
-				Message:    fmt.Sprintf("agent %s was killed by an operator", claims.AgentName),
+				Message:    fmt.Sprintf("agent %s was killed by an operator", agents[i]),
 			}
 		}
 	}
 
 	return nil
+}
+
+// chainAgents returns every distinct agent named in the chain,
+// outermost first, falling back to Claims.AgentName for callers that
+// only set the leaf.
+func chainAgents(claims *macaroon.Claims) []string {
+	out := make([]string, 0, len(claims.Lineage)+1)
+	seen := map[string]bool{}
+	for _, a := range append(append([]string(nil), claims.Lineage...), claims.AgentName) {
+		if a != "" && !seen[a] {
+			seen[a] = true
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // chainRunIDs returns every distinct run_id in the verified chain,

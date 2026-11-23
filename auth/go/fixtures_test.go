@@ -54,12 +54,13 @@ type fixture struct {
 		TokenCanonicalJSON string `json:"token_canonical_json"`
 		TokenB64url        string `json:"token_b64url"`
 		Claims             struct {
-			OrgID     string `json:"org_id"`
-			UserID    string `json:"user_id"`
-			AgentName string `json:"agent_name"`
-			RunID     string `json:"run_id"`
-			IAT       string `json:"iat"`
-			Exp       string `json:"exp"`
+			OrgID     string   `json:"org_id"`
+			UserID    string   `json:"user_id"`
+			AgentName string   `json:"agent_name"`
+			Lineage   []string `json:"lineage"`
+			RunID     string   `json:"run_id"`
+			IAT       string   `json:"iat"`
+			Exp       string   `json:"exp"`
 			Chain     []struct {
 				RunID      string                       `json:"run_id"`
 				MaxCostUSD float64                      `json:"max_cost_usd"`
@@ -203,6 +204,9 @@ func runFixture(t *testing.T, name string) {
 	if claims.OrgID != wc.OrgID || claims.UserID != wc.UserID || claims.AgentName != wc.AgentName ||
 		claims.RunID != wc.RunID || claims.IAT != wc.IAT || claims.Exp != wc.Exp {
 		t.Errorf("claims: got %+v, want %+v", claims, wc)
+	}
+	if len(claims.Lineage) != len(wc.Lineage) || (len(wc.Lineage) > 0 && !reflect.DeepEqual(claims.Lineage, wc.Lineage)) {
+		t.Errorf("lineage: got %v want %v", claims.Lineage, wc.Lineage)
 	}
 	if !reflect.DeepEqual(claims.Nonces, wc.Nonces) {
 		t.Errorf("nonces: got %v want %v", claims.Nonces, wc.Nonces)

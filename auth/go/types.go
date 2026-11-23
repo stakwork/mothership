@@ -129,6 +129,7 @@ type Claims struct {
 	OrgID     string
 	UserID    string       // block 0's user_id, or ""
 	AgentName string       // the innermost agent, or ""
+	Lineage   []string     // every block's agent, outermost first (blocks without one skipped)
 	RunID     string       // the last block's run_id
 	IAT       string       // block 0's iat: the revoke_user_before axis
 	Exp       string       // the earliest exp in the chain

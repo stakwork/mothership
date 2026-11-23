@@ -131,6 +131,7 @@ func claimsOf(t Token) *Claims {
 		cv := b.Caveats
 		if cv.Agent != "" {
 			c.AgentName = cv.Agent
+			c.Lineage = append(c.Lineage, cv.Agent)
 		}
 		if mustTime(cv.Exp).Before(mustTime(c.Exp)) {
 			c.Exp = cv.Exp

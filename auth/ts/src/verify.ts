@@ -112,11 +112,15 @@ function claimsOf(t: Token): Claims {
   const first = t.blocks[0]!.caveats;
   const last = t.blocks[t.blocks.length - 1]!.caveats;
   let agentName = "";
+  const lineage: string[] = [];
   let exp = first.exp;
   let realms: Set<string> | null = null;
   const chain: ChainLayer[] = [];
   for (const { caveats: c } of t.blocks) {
-    if (c.agent !== undefined) agentName = c.agent;
+    if (c.agent !== undefined) {
+      agentName = c.agent;
+      lineage.push(c.agent);
+    }
     if (date(c.exp) < date(exp)) exp = c.exp;
     if (c.realms) {
       const keys = Object.keys(c.realms);
@@ -134,6 +138,7 @@ function claimsOf(t: Token): Claims {
     org_id: t.org_id,
     user_id: first.user_id ?? "",
     agent_name: agentName,
+    lineage,
     run_id: last.run_id,
     iat: first.iat,
     exp,

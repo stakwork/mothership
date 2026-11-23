@@ -110,6 +110,11 @@
       "org_id": "org_acme",
       "user_id": "u_alice",
       "agent_name": "browser",
+      "lineage": [
+        "coder",
+        "web-search",
+        "browser"
+      ],
       "run_id": "r_01h8alphagrandchild2run00",
       "iat": "2026-05-14T09:00:00Z",
       "exp": "2026-05-14T10:01:30Z",

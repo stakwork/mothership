@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,13 +62,29 @@ func TestCheckRevocations_KillAgent(t *testing.T) {
 	}
 }
 
-func TestCheckRevocations_KillAgent_LeafOnly(t *testing.T) {
+func TestCheckRevocations_KillAgent_OtherAgentDoesNotMatch(t *testing.T) {
 	mr := newMiniRedis(t)
-	// A kill on a different agent name must not match.
+	// A kill on an agent the chain doesn't name must not match.
 	mr.Set("bifrost:kill:agent:web-search", "1")
 
 	if err := CheckRevocations(context.Background(), killTestClaims()); err != nil {
 		t.Fatalf("kill on another agent must not match, got %+v", err)
+	}
+}
+
+// Killing an agent stops its sub-agents too: the kill covers every
+// agent in the lineage, so a killed agent can't keep going by
+// appending a block under another name.
+func TestCheckRevocations_KillAgent_CoversSubAgents(t *testing.T) {
+	mr := newMiniRedis(t)
+	mr.Set("bifrost:kill:agent:coder", "1")
+	c := killTestClaims()
+	c.AgentName = "renamed-sub-agent"
+	c.Lineage = []string{"coder", "renamed-sub-agent"}
+
+	err := CheckRevocations(context.Background(), c)
+	if err == nil || err.Code != "agent_killed" || !strings.Contains(err.Message, "coder") {
+		t.Fatalf("want agent_killed naming coder, got %+v", err)
 	}
 }
 

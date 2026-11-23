@@ -126,6 +126,8 @@ export interface Claims {
   user_id: string;
   /** The innermost `agent`, or "". */
   agent_name: string;
+  /** Every block's `agent`, outermost first (blocks without one skipped). */
+  lineage: string[];
   /** The last block's `run_id`. */
   run_id: string;
   /** Block 0's `iat`: the `revoke_user_before` axis. */

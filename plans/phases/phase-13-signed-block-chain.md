@@ -191,6 +191,7 @@ Returns claims:
 | --- | --- |
 | `org_id`, `user_id` | the token, block 0 |
 | `agent_name` | innermost `agent` ("" if none) |
+| `lineage` | every block's `agent`, outermost first |
 | `run_id` | the last block's `run_id` |
 | `iat` | block 0's `iat` (`revoke_user_before`) |
 | `exp` | the earliest `exp` in the chain |
@@ -222,7 +223,10 @@ path folds into the per-layer loop:
 - **Revocations** (`revocation.go`): unchanged, over `nonces`;
   `revoke_user_before` compares block 0's `iat`; nonce 0 still
   reports `user_authorization_revoked`.
-- **Kills**: unchanged, over every `run_id` and the innermost agent.
+- **Kills**: over every `run_id` (as before) and every agent in the
+  lineage (v1 checked only the innermost agent). Killing an agent
+  stops its sub-agents, and a killed agent can't keep going by
+  appending a block under another name.
 - **Org key** (`verifier.go`, `internal/trust`): `singleKeyPolicy`
   reads the `alg` from the key's length; the registry accepts 32-byte
   Ed25519 keys.
@@ -300,6 +304,12 @@ a block moved under another root, an agent outside `agents`.
    goes with `cost:ua`. Default: rename. Stadeum's code matches on
    none of them; strut's only match is a test of v1 widening
    (`src/mothership.test.ts`), which its PR replaces.
+5. **Per-agent budgets.** `agent_budgets` still charge and cap only
+   the innermost agent, so a sub-agent under another name spends
+   outside its parent agent's windowed budget (as in v1). Default:
+   unchanged. Charging every agent in the lineage would close it, but
+   would change what the per-agent spend numbers mean (each would
+   include its sub-agents).
 
 ## Work items
 
