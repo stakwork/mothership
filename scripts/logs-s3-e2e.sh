@@ -383,8 +383,12 @@ echo "  b. SQLite rows (has_object, len input_history / output_message / params 
 sql "$VOL" "SELECT '    '||id, status, has_object, length(input_history), length(output_message), length(params), length(raw_response), length(error_details), substr(content_summary,1,40) FROM logs WHERE json_extract(metadata,'\$.\"run-id\"')='r-post' ORDER BY timestamp;"
 check "b. success row: has_object=1, output/params stripped, input_history = last user message only" \
   "$(is "$(sql "$VOL" "SELECT has_object=1 AND coalesce(output_message,'')='' AND coalesce(params,'')='' AND input_history NOT LIKE '%SYSTEM-MARKER%' AND input_history LIKE '%three words%' FROM logs WHERE id='$POST_OK';")" = 1)"
-check "b. error row: has_object=1, error_details stripped" \
-  "$(is "$(sql "$VOL" "SELECT has_object=1 AND coalesce(error_details,'')='' FROM logs WHERE id='$POST_ERR';")" = 1)"
+# Since transports/v2.6.0 error_details stays in SQLite (the dashboard's
+# error rankings and filters query the column; framework/logstore/hybrid.go
+# databaseResidentPayloadFields). Only provider raw bodies inside it go to
+# the object. Before, it was stripped like the rest of the payload.
+check "b. error row: has_object=1, error_details kept in the row (v2.6.0+)" \
+  "$(is "$(sql "$VOL" "SELECT has_object=1 AND length(coalesce(error_details,''))>0 FROM logs WHERE id='$POST_ERR';")" = 1)"
 check "b. tokens and cost stay in the row" \
   "$(is "$(sql "$VOL" "SELECT total_tokens>0 AND cost>0 FROM logs WHERE id='$POST_OK';")" = 1)"
 

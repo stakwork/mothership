@@ -34,7 +34,7 @@ expects.
 mothership/
 ├── main.go            # plugin entry points (Init, GetName, Cleanup, *Hook)
 │                      #   one-line delegations into internal/ — auditable at a glance
-├── go.mod             # pinned: bifrost/core v1.5.10, Go 1.26.2
+├── go.mod             # pinned: bifrost/core v1.16.0 + mcp-go fork replace, Go 1.27.4
 ├── Makefile           # local + docker + UI build targets
 ├── Dockerfile         # bifrost-http + plugin .so + wrapper + admin UI, all in one image
 ├── docker-compose.yml # host 8181 -> container 8181, named volume for /app/data
@@ -55,7 +55,8 @@ mothership/
 │   ├── go.mod         # stdlib-only Go module (separate from plugin's bifrost dep)
 │   ├── main.go        # PID-1 binary: owns :8181, fronts bifrost + /_plugin/*
 │   ├── logsoffload.go # BIFROST_LOGS_S3_* -> config.json logs_store (+ 30-day retention)
-│   └── legacy.go      # preflight, move the pre-offload logs.db aside, archive it
+│   ├── legacy.go      # preflight, move the pre-offload logs.db aside, archive it
+│   └── identity.go    # BIFROST_IDENTITY_ISSUER: the gateway as its own OIDC issuer
 └── logarchive/        # /app/logs-archive: S3 preflight + legacy logs.db upload
                        #   (own module, AWS SDK pinned to bifrost's versions)
 ```
@@ -90,7 +91,7 @@ as the dashboard, with one TLS terminator at the swarm/ingress edge.
 
 The upstream `maximhq/bifrost:latest` is statically linked and **cannot
 load `.so` plugins** ([docs](https://docs.getbifrost.ai/plugins/building-dynamic-binary)).
-The `Dockerfile` here clones `bifrost` at a pinned tag (`transports/v2.2.2`, the Dockerfile's `BIFROST_VERSION`),
+The `Dockerfile` here clones `bifrost` at a pinned tag (`transports/v2.6.0`, the Dockerfile's `BIFROST_VERSION`),
 builds `bifrost-http` with CGO + dynamic linking, builds our plugin
 against the same source tree (avoiding the "plugin was built with a
 different version of package" trap), builds the (stdlib-only) wrapper
@@ -286,7 +287,7 @@ make docker-build
 cd auth/ts && npm install && node --import tsx ../../scripts/custom-provider-e2e.ts
 ```
 
-What it shows, on bifrost `transports/v2.2.2`:
+What it shows, on bifrost `transports/v2.2.2` and again on `transports/v2.6.0`:
 
 - **A custom provider takes two calls.** First `POST /api/providers` with
   `network_config` (`base_url`, plus `allow_private_network` for an address
@@ -343,6 +344,11 @@ wrapper turns on Bifrost's hybrid log store
 "Object Storage for Logs"): it adds a `logs_store` block to the
 `config.json` it writes at boot (`wrapper/logsoffload.go`). Unset, the
 written `config.json` is the seed byte for byte and nothing changes.
+
+Since Bifrost v2.6.0 a failed call's `error_details` stays in `logs.db`
+with offload on, because the dashboard's error breakdowns and filters query
+that column; only provider raw bodies inside it go to the bucket. Before,
+it was offloaded with the rest of the payload.
 
 | Variable                            | Meaning                                                                                                   |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------- |
@@ -483,6 +489,127 @@ upstream (no provider keys, no spend):
 make docker-build
 scripts/logs-s3-e2e.sh
 ```
+
+## Anthropic without an API key
+
+The gateway can be its own OIDC issuer, so Anthropic's
+[workload identity federation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation)
+trusts it and no `sk-ant-…` key is stored anywhere. Nothing about it is
+cloud-specific: the gateway holds its own signing key.
+
+**How it works.** With `BIFROST_IDENTITY_ISSUER` set, the wrapper
+(`wrapper/identity.go`):
+
+1. keeps a P-256 key at `/app/data/identity/signing-key.pem`, made on the
+   first boot (0600, in the data volume, so in backups too);
+2. serves, unauthenticated, `/.well-known/openid-configuration` and the
+   public key set it names, `/.well-known/mothership-jwks.json` (not
+   `/.well-known/jwks.json`, which bifrost-http keeps for its MCP OAuth
+   server);
+3. writes a signed JWT to `/run/secrets/mothership/anthropic-identity-token`
+   before bifrost-http starts and every 30 s after: `iss` the issuer, `sub`
+   `mothership`, `aud` `https://api.anthropic.com`, 30 minutes of life, a
+   fresh `jti`, ES256 with the key's RFC 7638 thumbprint as `kid`.
+
+Bifrost (v2.5+) does the rest. An Anthropic key with no value and an
+`anthropic_key_config.workload_identity` block reads that file on each
+exchange, trades it at `POST {base_url}/v1/oauth/token` for an
+`sk-ant-oat01-…` token (about an hour: Anthropic grants the lesser of the
+rule's lifetime and twice the assertion's remaining life), caches it,
+refreshes it two minutes before expiry and sends it as a bearer. A `jti`
+makes each assertion single-use; Bifrost waits for the file to change
+before exchanging again, which the 30 s rewrite guarantees.
+
+| Variable | Meaning |
+| --- | --- |
+| `BIFROST_IDENTITY_ISSUER` | The issuer URL, e.g. `https://mothership.acme.stakwork.ai`. Unset: none of this runs, and `/.well-known/*` reaches bifrost-http as before. `/.well-known/openid-configuration` and `/.well-known/mothership-jwks.json` under it must reach this container's `:8181`. |
+
+**What the manager does** (Stadeum, for each box):
+
+1. Set `BIFROST_IDENTITY_ISSUER` to the box's gateway origin, and route
+   those two `/.well-known/` paths there (on Stadeum: the
+   `mothership.{$HOST}` site in the Caddyfile).
+2. Register the issuer in Anthropic's console (Workload identity → Custom
+   OIDC): its URL for discovery, or, for a box Anthropic cannot reach, the
+   key set pasted inline (`GET /.well-known/mothership-jwks.json` on the
+   box's network). Then a service account and a federation rule matching
+   `iss` and `sub` `mothership`, audience `https://api.anthropic.com`,
+   scope `workspace:inference`.
+3. Write the Anthropic key through Bifrost's API, where a static key goes
+   today (`PUT /api/providers/anthropic/keys/{key_id}`):
+
+   ```json
+   {
+     "name": "anthropic-key-1",
+     "value": "",
+     "models": ["*"],
+     "weight": 1,
+     "anthropic_key_config": {
+       "workload_identity": {
+         "federation_rule_id": "fdrl_…",
+         "organization_id": "…",
+         "service_account_id": "svac_…",
+         "workspace_id": "wrkspc_…",
+         "identity_source": {
+           "type": "file",
+           "path": "/run/secrets/mothership/anthropic-identity-token"
+         }
+       }
+     }
+   }
+   ```
+
+   `workspace_id` only when the rule spans several workspaces. A key with a
+   value wins over the block, so pasting a static key still works.
+
+**What it costs.** The private key sits in the data volume and its backups.
+Whoever holds it can mint assertions until the rule is archived in
+Anthropic's console, as with a leaked API key, but for that one box only.
+The key is never replaced on its own. Deleting the file makes a new key
+(and `kid`) on the next boot: an issuer registered by discovery picks it up
+within a minute, one registered with the key set inline needs it pasted
+again.
+
+`scripts/anthropic-federation-e2e.ts` runs the image against a fake
+Anthropic that checks each assertion the way Anthropic does (signature
+from the served key set, `iss`, `aud`, `exp`, an unused `jti`):
+
+```bash
+make docker-build
+cd auth/ts && npm install && node --import tsx ../../scripts/anthropic-federation-e2e.ts
+```
+
+## Upgrading Bifrost
+
+`BIFROST_VERSION` (Makefile, Dockerfile), the `core` version and the
+`mcp-go` replace in `go.mod`, and `GO_VERSION` move together: the plugin
+loader refuses a `.so` built from different sources or a different Go than
+bifrost-http. Take all three from `transports/go.mod` at the new tag.
+
+**Back up the data volume first.** Bifrost migrates `config.db` and
+`logs.db` on the first boot of a new version, and several migrations
+between v2.2.2 and v2.6.0 cannot be undone by starting the old image (for
+example `move_config_json_vk_limits_to_model_configs`, and v2.5.0's
+`add_anthropic_workload_identity_column`); a rollback is the old image plus
+the backup. v2.3.0 also rebuilds the `logs` indexes at startup on SQLite,
+which takes a while on a large `logs.db`: the wrapper waits up to 10
+minutes for bifrost-http, and the image's health check allows 120 s to
+start.
+
+```bash
+docker compose stop bifrost
+docker run --rm -v stakgraph-gateway-data:/data -v "$PWD":/backup alpine \
+  tar czf /backup/gateway-data-$(date +%F).tgz -C /data .
+```
+
+**Compat defaults.** Since v2.2.6/v2.3.0 Bifrost's compat layer lowers a
+`max_tokens` above the catalog's limit (`should_convert_params`) and sends
+chat calls with tools to the Responses API for some reasoning models
+(`force_reasoning_only_models_to_responses`), both on by default. The seed
+`config.json` pins both off, the v2.2.x behaviour. The `client` section is
+reconciled by hash, so a changed seed wins on the next boot, and a
+dashboard edit survives until the seed changes. (Found while upgrading to
+v2.5.1 in stakwork/stakgraph#1865.)
 
 ## Local plugin build (without docker)
 
