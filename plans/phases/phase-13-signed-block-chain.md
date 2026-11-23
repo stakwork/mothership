@@ -110,10 +110,19 @@ and to everything under it.
 | `exp` | yes | The block is invalid after this. |
 | `user_id` | block 0 only | The person the org hands the chain to. Only the org may name a person; on any later block it is malformed. |
 | `agent` | no | The agent that holds this block's `next_key`. The innermost one is the billed agent (`agent_name`); the list of them is the lineage. |
-| `agents` | no | When set, the next block must name an `agent` from this list. The org uses it to say which agents a person may run. |
-| `max_cost_usd` | no | Cap on spend under this block on this gateway. Absent or 0: no cap. |
-| `max_steps` | no | Cap on calls under this block. Absent or 0: no cap. |
-| `realms` | no | `{ realm_id: { max_cost_usd } }`. When set, this gateway's realm must be a key, and its cap (if > 0) applies to this block too. |
+| `agents` | no | A non-empty list. When set, the next block must name an `agent` from it. The org uses it to say which agents a person may run. |
+| `max_cost_usd` | no | Cap on spend under this block on this gateway. Absent: no cap. |
+| `max_steps` | no | Cap on calls under this block. Absent: no cap. |
+| `realms` | no | `{ realm_id: { max_cost_usd? } }`, at least one realm. When set, this gateway's realm must be a key, and its cap (when given) applies to this block too. |
+
+Two structure rules, the same in both verifiers. An unknown field or
+a `null` anywhere is malformed: a caveat the verifier does not know
+could be a limit it would silently skip. And an optional field that
+is present must be non-zero (no `max_steps: 0`, no empty `agents`):
+leave it out for "no limit". The second rule makes every valid
+token's JSON exactly what the Go structs marshal to, so the Go
+verifier rebuilds the signed bytes from parsed structs and agrees
+with the TS signer byte for byte.
 
 What is gone from v1: the separate `user_authorization`,
 `invocation` and `attenuations`; `user_pubkey` (it is block 0's
@@ -143,8 +152,10 @@ an Ed25519 one. A block's `sig` is checked with the previous block's
 the org's policy: `single` (any `alg`) or `multisig-v1`. Agents
 default to fresh Ed25519 keys.
 
-The trust registry stores the org key as hex. Its `alg` is read from
-the length: 66 hex characters is secp256k1, 64 is Ed25519.
+The trust registry stores the org key as hex and now accepts a
+32-byte Ed25519 key as well as a 33-byte compressed secp256k1 one.
+The verifier reads the `alg` from the length: 64 hex characters is
+Ed25519, 66 is secp256k1.
 
 ### Signing input
 
@@ -162,12 +173,13 @@ be moved under another block 0 that names the same key.
 ## Verifying
 
 ```
+check the structure of the whole token         → macaroon_malformed
+                                                 (v ≠ 2: macaroon_unsupported_version)
 key = org policy
 for each block i:
     check sig_i over msg_i with key            → invalid_root_signature (i = 0)
                                                  invalid_block_signature (i > 0)
     check exp_i ≥ now                           → macaroon_expired
-    if i > 0 and user_id set                    → macaroon_malformed
     if blocks[i-1].agents set and agent_i ∉ it  → agent_not_permitted
     key = next_key_i
 check public(proof) == key                      → invalid_proof
@@ -198,34 +210,40 @@ path folds into the per-layer loop:
   `meta:run` per distinct `run_id`, block 0 included. `cost:ua` is
   gone; a person's total is `cost:run:<block 0's run_id>`. In the
   operator UI the grant shows as the root of the run tree.
-- **Cap walk** (`capwalk.go`): per layer, `cost:run ≥ max_cost_usd`
-  (`run_cost_exceeded`), `cost:run ≥ realms[realm].max_cost_usd`
-  (`realm_budget_exceeded`), `steps:run ≥ max_steps`
-  (`run_step_exceeded`). The `ua_budget_exceeded` branch is gone.
+- **Cap walk** (`capwalk.go`): per block, leaf first,
+  `cost:run ≥ max_cost_usd` (`run_cost_exceeded`),
+  `cost:run ≥ realms[realm].max_cost_usd` (`realm_budget_exceeded`),
+  `steps:run ≥ max_steps` (`run_step_exceeded`). Blocks that share a
+  `run_id` share its counter, and each one's caps apply (v1 skipped
+  the inner one as a duplicate). The `ua_budget_exceeded` branch is
+  gone.
 - **Realm membership** (`enforcement.go`): the four cases of phase
   11, checked on every block that sets `realms`.
 - **Revocations** (`revocation.go`): unchanged, over `nonces`;
   `revoke_user_before` compares block 0's `iat`; nonce 0 still
   reports `user_authorization_revoked`.
 - **Kills**: unchanged, over every `run_id` and the innermost agent.
-- **Org key** (`verifier.go`): `singleKeyPolicy` reads the `alg` from
-  the key's length.
+- **Org key** (`verifier.go`, `internal/trust`): `singleKeyPolicy`
+  reads the `alg` from the key's length; the registry accepts 32-byte
+  Ed25519 keys.
 
 Redis keys, the admin API and the hooks keep their shapes.
 
 ## `gatekey` 1.0.0 (`auth/ts`) and the Go package (`auth/go`)
 
 One verifier loop and one signer in each language, byte-identical on
-the fixtures:
+the fixtures (Go names in brackets):
 
-- `generateKey(alg?)` → `{ alg, priv, pub }` (Ed25519 by default).
-- `mintRoot(orgId, caveats, holder: PubKey, orgSigner)` → block 0;
-  `mintRootMultisig(…, signers)` for an m-of-n org.
-- `attenuate(token, caveats, next?)` → a new token: signs a block
-  with `token.proof`, names `next` (fresh Ed25519 when omitted), and
-  carries `next`'s private key as the new proof.
-- `verify(token, policy, now)` → claims; `encodeToken` /
-  `decodeToken`.
+- `generateKey(alg?)` [`GenerateKey`] → `{ alg, priv, pub }`
+  (Ed25519 by default); `keyPair(alg, priv)` [`KeyPairFromPrivate`].
+- `signRoot(orgId, caveats, holder, orgKey)` [`SignRoot`] → block 0;
+  `signRootMultisig(…, signers)` [`SignRootMultisig`] for an m-of-n
+  org.
+- `attenuate(token, caveats, next?)` [`Attenuate`] → a new token:
+  signs a block with `token.proof`, names `next` (fresh Ed25519 when
+  omitted in TS), and carries `next`'s private key as the new proof.
+- `verify(token, policy, now)` [`Verify`] → claims;
+  `encodeToken` / `decodeToken` [`EncodeToken`].
 
 A custodial issuer (Stadeum holds the org and person keys) mints
 block 0 for the person's key, then attenuates
@@ -237,11 +255,13 @@ The person's private key never leaves the issuer.
 ## Fixtures
 
 `auth/fixtures/` is regenerated for v2 and keeps the Go ↔ TS
-byte-equivalence test. Cases: one block (a person's own token);
-person → agent; two sub-agent levels; a multisig org; caps on block
-0; multi-realm; a cross-realm sub-agent; a person with a secp256k1
-key. Each fixture also lists the tampered tokens that must fail:
-every truncation, a swapped proof, a block moved under another root.
+byte-equivalence test, now with Go signing too. Cases: one block (a
+person's own token); person → agent; one and two sub-agent levels; a
+multisig org; caps on block 0; multi-realm; a cross-realm sub-agent;
+an Ed25519 org with a secp256k1 person. Each fixture also lists the
+tampered tokens that must fail, with their codes: every truncation
+(`invalid_proof`), a foreign proof, an edited block 0 or last block,
+a block moved under another root, an agent outside `agents`.
 
 ## Rollout
 
@@ -283,14 +303,15 @@ every truncation, a swapped proof, a block moved under another root.
 
 ## Work items
 
-- [ ] `auth/ts`: types, signer, verifier, `generateKey`, tests,
+- [x] `auth/ts`: types, signer, verifier, `generateKey`, tests,
       README; version 1.0.0.
-- [ ] `auth/go`: the same, `fixtures_test.go` against the new
+- [x] `auth/go`: the same, `fixtures_test.go` against the new
       fixtures, tamper tests.
-- [ ] `auth/ts/scripts/regenerate-fixtures.ts` and `auth/fixtures/`.
-- [ ] `internal/auth`: claims, accumulator, cap walk, membership,
-      revocation, verifier; tests.
-- [ ] `scripts/mint-macaroon.ts`, `scripts/smoke-test-*.sh`.
-- [ ] Docs: `auth/README.md`, `auth/ts/README.md`,
+- [x] `auth/ts/scripts/regenerate-fixtures.ts` and `auth/fixtures/`.
+- [x] `internal/auth`: claims, accumulator, cap walk, membership,
+      revocation, verifier; tests. `internal/trust`: Ed25519 org keys.
+- [x] `scripts/mint-macaroon.ts`, `scripts/smoke-test-*.sh` (updated;
+      not run against a live gateway in this PR).
+- [x] Docs: `auth/README.md`, `auth/ts/README.md`,
       `auth/fixtures/README.md`; a superseded note at the top of
       phase 4 and phase 11.

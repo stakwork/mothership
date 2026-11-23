@@ -1,78 +1,61 @@
 # Macaroon auth — cross-language implementation
 
 The cryptographic identity layer for the gateway's macaroon-based LLM
-governance. Three sibling implementations that all agree byte-for-byte:
+governance. Sibling implementations that agree byte for byte:
 
 ```
 auth/
 ├── fixtures/   ← source-of-truth test vectors (JSON; language-neutral)
-├── go/         ← pure verifier (used by internal/auth/ adapter)
+├── go/         ← verifier + signer (used by the internal/auth/ adapter)
 └── ts/         ← signer + attenuator + verifier (published as `gatekey` on npm)
 ```
 
-## The three layers, at a glance
+## The chain, at a glance
 
-Every macaroon carries three nested layers of authority. The verifier
-walks them top-down; if any layer fails, the call is rejected.
+A token (macaroon v2) is a chain of blocks of one type, plus a proof
+key. Every hop — org → person, person → agent, agent → sub-agent — is
+one block: limits, the key that signs the next block, and a signature
+by the key the block before it named.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  ORG  ──signs──▶  user_authorization                                │
-│                   { user_id, user_pubkey, agents, budget?, exp, … } │
-│                                                                      │
-│        verify:    ECDSA-secp256k1-SHA256 (or multisig m-of-n)       │
-│                   over JCS(user_authorization \ org_sig)             │
-│        against:   org pubkey from trust registry (phase 5)           │
+│  block 0   caveats { run_id, user_id, agents?, max_cost_usd?, … }   │
+│            next_key: the person's key                               │
+│            sig: by the ORG's policy (single key or m-of-n multisig) │
 └──────────────────────────┬──────────────────────────────────────────┘
-                           │ user_pubkey binds the next layer
+                           │ next_key signs the next block
                            ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  USER  ──signs──▶  invocation                                       │
-│                    { agents, run_id, max_cost_usd, max_steps,       │
-│                      budget?, exp, … }                              │
-│                                                                      │
-│        verify:    Ed25519 over JCS(invocation \ user_sig)           │
-│        against:   user_authorization.user_pubkey                     │
-│        narrow:    agents     ⊆ user_authorization.agents            │
-│                   budget     narrows per phase-11 symmetric rule    │
+│  block 1   caveats { run_id, agent, max_cost_usd?, max_steps?, … }  │
+│            next_key: the agent's key                                │
+│            sig: by the PERSON's key                                 │
 └──────────────────────────┬──────────────────────────────────────────┘
-                           │ user_sig bytes seed the HMAC chain
                            ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  AGENT  ──HMACs──▶  attenuations[0..N]                              │
-│                     each: { caveats, hmac }                         │
-│                                                                      │
-│        verify:    HMAC-SHA256( prev_sig_bytes,                       │
-│                                JCS(caveats) ) == hmac                │
-│           where prev_sig_bytes =                                     │
-│             link 0 → invocation.user_sig (bytes)                     │
-│             link i → attenuations[i-1].hmac (bytes)                  │
-│        narrow:    agents     ⊇ parent.agents     (may add only)     │
-│                   max_cost   ≤ parent.max_cost                       │
-│                   max_steps  ≤ parent.max_steps                      │
-│                   exp        ≤ parent.exp                            │
-│                   budget     narrows per phase-11 symmetric rule    │
-└─────────────────────────────────────────────────────────────────────┘
+                         … one block per sub-agent …
+                           ▼
+            proof: the private key of the last next_key
 ```
 
-Three signature kinds, three layers of narrowing, one chain of
-authority. The org signs the user, the user signs the invocation, the
-invocation extends to sub-agents via HMAC. Every signed layer has the
-same shape (`agents` + optional `budget`), and phase 11's symmetric
-`narrow(parent, child)` rule applies at every boundary — including
-optional per-realm caps in `budget.realm_budgets` for multi-swarm
-deployments. Spec:
-[`../plans/phases/phase-4-macaroon-shape.md`](../plans/phases/phase-4-macaroon-shape.md)
-+ [`../plans/phases/phase-11-symmetric-recursive-authorization.md`](../plans/phases/phase-11-symmetric-recursive-authorization.md).
+The verifier walks the blocks with one loop: check each signature
+over `JCS({org_id, prev, caveats, next_key})` (`prev` = hash of the
+block before), check no block has expired, check each `agent` against
+the block before's `agents`, then check the proof is the private half
+of the last key. Dropping a block would need the private key of the
+block before, which nobody downstream of it ever had, so a holder can
+narrow its token but never shorten it.
+
+There is no narrowing check: every block's limits apply, and the
+gateway checks all of them (a child that claims $100 under a $5
+parent stops at $5, because the parent's counter includes everything
+under it). Any key can be Ed25519 or secp256k1. Spec:
+[`../plans/phases/phase-13-signed-block-chain.md`](../plans/phases/phase-13-signed-block-chain.md).
 
 ## Where to start
 
-- **Spec:** `../plans/phases/phase-4-macaroon-shape.md` (wire format,
-  signing inputs, HMAC chain, verifier algorithm) +
-  `../plans/phases/phase-11-symmetric-recursive-authorization.md`
-  (current field set: flat `agents`, optional `budget` with
-  `realm_budgets`, symmetric narrowing rule at every layer). Read
-  both first; nothing in `go/` or `ts/` makes sense without them.
+- **Spec:** `../plans/phases/phase-13-signed-block-chain.md` (wire
+  format, signing input, verifier, gateway changes). It replaces the
+  three-layer format of phase 4 and the narrowing rules of phase 11;
+  the rest of those docs (why each limit exists, realms) still holds.
 - **Context:** `../plans/cryptographic-identity.md` (why the
   three-principal model exists), `../plans/llm-governance-v2.md`
   (how the macaroon plugs into the rest of the governance stack).
@@ -81,61 +64,54 @@ deployments. Spec:
 
 ### `fixtures/`
 
-Language-neutral test vectors. Every signer and verifier
-implementation loads these from disk and asserts byte-for-byte
-equivalence at every intermediate value (signing input bytes, JCS
-canonical JSON, HMAC inputs/outputs, base64url encoding). If the
-fixtures pass on both sides, the implementations agree.
+Language-neutral test vectors. Both implementations rebuild every
+token from the fixture's keys and caveats, match every intermediate
+value byte for byte (each block's `prev`, signing input and canonical
+JSON, the whole token, its base64url), check the claims, and check
+every tampered token (each truncation, a foreign proof, edited blocks,
+a block moved under another root) fails with its recorded code.
 
-Regenerated by `ts/scripts/regenerate-fixtures.ts` from deterministic
-seed keys, so the fixture set is reproducible from scratch.
+Regenerated by `ts/scripts/regenerate-fixtures.ts` from fixed seed
+keys, so the fixture set is reproducible from scratch.
 
 ### `go/`
 
-Pure verifier. No I/O, no Bifrost types, no ambient state. Public API:
+Verifier and signer. No I/O, no Bifrost types, no ambient state:
 
 ```go
-auth.Verify(macaroonB64 string, policy Policy, now time.Time) (*Claims, error)
+macaroon.Verify(tokenB64 string, policy Policy, now time.Time) (*Claims, error)
+macaroon.SignRoot(orgID, caveats, holder, orgKey) / macaroon.Attenuate(token, caveats, nextKey)
 ```
 
-Consumed by the Bifrost-plugin adapter at `internal/auth/`,
-which adds header extraction, trust-registry lookup, Redis-backed
-revocation checks, and `bifrost.Error` shaping. The adapter holds no
-cryptographic knowledge.
+Consumed by the Bifrost-plugin adapter at `internal/auth/`, which adds
+header extraction, trust-registry lookup, Redis-backed revocation and
+caps, and `bifrost.Error` shaping. The adapter holds no cryptographic
+knowledge.
 
 ### `ts/`
 
-Signer, attenuator, and (optional) verifier. Published on npm as
+Signer, attenuator and verifier. Published on npm as
 [`gatekey`](https://www.npmjs.com/package/gatekey) (open source, MIT).
-Consumed by:
-
-- Hive's `/macaroons/issue` handler — signs `user_authorization`
-  (custodial phase 1) and `invocation` layers.
-- stakgraph's `mcp` and any other TS consumer — same package, via
-  workspace path during development.
-- Agent processes that need to attenuate before spawning sub-agents
-  — same package, same API.
+Consumed by issuers (Stadeum mints block 0 and the person's block for
+strut) and by agents that attenuate before handing a token on (strut).
 
 ## Other languages
 
-Sub-agent attenuation requires only JCS canonicalization + HMAC-SHA256
-
-- hex encoding — all of which are one-file implementations in any
-  language. The spec (`phase-4-macaroon-shape.md`) and the fixtures
-  together are the contract. There is no Stakwork-provided Python /
-  Rust / Java / … library; agent authors implement the attenuator
-  directly against the spec and validate against the fixtures.
+An agent that spawns sub-agents needs JCS canonicalization, SHA-256,
+Ed25519 (or secp256k1) signing, and hex — all in standard or
+near-standard libraries everywhere. The spec and the fixtures together
+are the contract; there is no Stakwork-provided Python / Rust / …
+library.
 
 ## Drift prevention
 
 CI in this repo runs both:
 
 ```
-go test ./gateway/auth/go/...
+go test ./internal/... ./auth/...
 cd auth/ts && npm test
 ```
 
-Both load the same `fixtures/*.json` and assert every `expected.*`
-value reproduces byte-for-byte from the `inputs.*`. Any signer-side
-or verifier-side change that breaks the contract fails the build
-immediately.
+Both load the same `fixtures/NN-*.json` and fail on any byte that
+differs, so a signer- or verifier-side change that breaks the
+contract fails the build immediately.

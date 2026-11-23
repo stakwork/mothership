@@ -1,18 +1,24 @@
 # Macaroon test vectors
 
-Language-neutral fixtures that pin down every byte of the phase-4
-wire format. Every implementation (Go, TS, polyglot) loads these,
-reproduces every `expected.*` value from the `inputs.*` private keys
-and unsigned objects, and fails if any byte differs.
+Language-neutral fixtures that pin down every byte of the v2 token
+(`plans/phases/phase-13-signed-block-chain.md`). Every implementation
+(Go, TS, polyglot) rebuilds each token from `inputs`, reproduces every
+`expected` value, checks every tampered token fails with its code, and
+fails if any byte differs.
 
 ## Files
 
 ```
-keys.json                  the deterministic seed keys used by all fixtures
-01-simple.json             single-key org, one ua + one invocation, zero attenuations
-02-one-attenuation.json    single-key org, one sub-agent attenuation
-03-two-attenuations.json   single-key org, two-deep attenuation chain
-04-multisig-2of3.json      2-of-3 multisig org, signers 0 and 2 participate
+keys.json                        the fixed seed keys used by all fixtures
+01-person.json                   block 0 only: the org hands the chain to a person
+02-person-to-agent.json          the person hands an agent a run: a standing delegation
+03-one-sub-agent.json            the agent spawns a sub-agent
+04-two-sub-agents.json           two sub-agent levels
+05-multisig-2of3.json            a 2-of-3 multisig org signs block 0 (signers 0 and 2)
+06-caps-on-root.json             block 0 caps everything under the person's grant
+07-multi-realm.json              block 0 permits two realms; the run narrows to one
+08-cross-realm-sub-agent.json    a sub-agent spawned for one realm
+09-mixed-algs.json               an Ed25519 org key and a secp256k1 person key
 ```
 
 ## Transparency-log fixtures (`tlog-*.json`)
@@ -43,8 +49,8 @@ anything real.
 
 ## Reproducibility
 
-These files are **generated**, not hand-written. The source of truth
-is `auth/ts/scripts/regenerate-fixtures.ts`. To regenerate:
+The `NN-*.json` files are **generated**, not hand-written. The source
+of truth is `auth/ts/scripts/regenerate-fixtures.ts`. To regenerate:
 
 ```sh
 cd auth/ts
@@ -52,75 +58,55 @@ npm install
 npm run regenerate-fixtures
 ```
 
-The seed private keys are fixed in the script (well-known low-numbered
-secp256k1 keys, fixed 32-byte Ed25519 seeds). The script produces
-deterministic output because:
-
-- `@noble/curves` ECDSA signing uses RFC 6979 deterministic nonces.
-- `@noble/curves` Ed25519 signing is deterministic by RFC 8032.
-- Everything else is just JCS canonicalization + HMAC-SHA256, both
-  deterministic by definition.
-
-Anyone running the script gets byte-identical output. The fixtures are
-checked in alongside the spec so anyone can read them without running
-anything.
+The seed private keys are fixed in the script, so the output is
+deterministic: `@noble/curves` Ed25519 signing is deterministic by
+RFC 8032 and its ECDSA uses RFC 6979 nonces; everything else is JCS
+canonicalization and SHA-256. Anyone running the script gets
+byte-identical files.
 
 ## Fixture shape
 
-Each `NN-*.json` has two top-level keys:
-
-```jsonc
-{
-  "description": "human-readable summary",
-  "inputs":   { /* private keys + unsigned objects */ },
-  "expected": { /* every intermediate value, byte-for-byte */ }
-}
-```
+Each `NN-*.json` has three top-level keys: `description`, `inputs`,
+`expected`.
 
 ### `inputs`
 
-What an implementation needs in order to produce the macaroon:
-
-| Field                            | Notes                                                 |
-| -------------------------------- | ----------------------------------------------------- |
-| `org_id`                         | The `org_id` that goes in the macaroon's top-level field. |
-| `org_priv_hex`                   | Single-sig only. 32-byte secp256k1 private key.       |
-| `org_privs_hex`                  | Multisig only. Map of `key_index → priv_hex`.         |
-| `participating_signers`          | Multisig only. Array of key_indexes that actually sign. |
-| `user_priv_hex`                  | 32-byte Ed25519 seed.                                 |
-| `policy`                         | The trust-registry policy a verifier would store for this org. |
-| `ua_unsigned`                    | `user_authorization` without `org_sig`.               |
-| `inv_unsigned`                   | `invocation` without `user_sig`.                      |
-| `atts_unsigned`                  | Array of `caveats` objects, one per attenuation in the chain. |
+| Field | Notes |
+| --- | --- |
+| `org_id` | The token's `org_id`. |
+| `policy` | The trust-registry policy a verifier would hold for this org. |
+| `org_keys` | `[{ alg, priv_hex }]`: one key for a single-key org, the policy's keys in order for multisig. |
+| `participating_signers` | Multisig only: the `key_index`es that sign block 0. |
+| `root` | `{ caveats, holder: { alg, priv_hex } }`: block 0's caveats and the person's key it names. |
+| `blocks` | `[{ caveats, next: { alg, priv_hex } }]`: each later block's caveats and the key it names, in order. |
+| `now` | The verification time: after every `iat`, before every `exp`. |
 
 ### `expected`
 
-Every byte at every intermediate step:
-
-| Field                            | What it pins down                                     |
-| -------------------------------- | ----------------------------------------------------- |
-| `ua_signing_bytes_hex`           | UTF-8 bytes of `JCS(ua_unsigned)` (the ECDSA input).  |
-| `inv_signing_bytes_hex`          | UTF-8 bytes of `JCS(inv_unsigned)` (the Ed25519 input). |
-| `ua_canonical_json`              | The exact canonical JSON string of the signed `user_authorization` minus `org_sig`. |
-| `inv_canonical_json`             | Same for `invocation` minus `user_sig`.               |
-| `macaroon_canonical_json`        | JCS of the assembled macaroon (signatures included). |
-| `macaroon_b64url`                | base64url of the canonical macaroon — the value that goes in `x-macaroon`. |
-| `attenuation_hmac_inputs[i]`     | For each attenuation: the prev_sig bytes, the canonical caveats, the HMAC input, the HMAC output. |
-| `claims`                         | What the verifier returns on success.                 |
-| `verify_result`                  | `"ok"` for the success-path fixtures here.            |
+| Field | What it pins down |
+| --- | --- |
+| `blocks[i].prev_hex` | `hex(sha256(JCS(block i-1)))`, or `""` for block 0. |
+| `blocks[i].signing_bytes_hex` | UTF-8 bytes of `JCS({ org_id, prev, caveats, next_key })`: what block *i*'s signature covers. |
+| `blocks[i].block_canonical_json` | JCS of block *i*, signature included. |
+| `token_canonical_json` | JCS of the whole token. |
+| `token_b64url` | base64url of the canonical token — the value that goes in `x-macaroon`. |
+| `claims` | What the verifier returns at `inputs.now`. |
+| `tampered` | `[{ case, token_b64url, code }]`: tokens that must fail, with the code each fails with — every truncation, a foreign proof, an edited block, a block moved under another root, an agent outside `agents`. |
 
 ## How implementations use this
 
-Both the Go pure verifier (`auth/go/`) and the TS package
-(`auth/ts/`) ship a fixture test that:
+Both the Go package (`auth/go/fixtures_test.go`) and the TS package
+(`auth/ts/test/fixtures.test.ts`):
 
-1. Reads each `NN-*.json`.
-2. Re-signs `ua_unsigned` with `org_priv_hex` (or multisig signers).
-3. Re-signs `inv_unsigned` with `user_priv_hex`.
-4. Re-HMACs each entry in `atts_unsigned`.
-5. Asserts every intermediate value matches `expected.*` byte-for-byte.
-6. Verifies the assembled macaroon end-to-end against `inputs.policy`.
+1. Sign block 0 with `org_keys` (or the multisig signers) for
+   `root.holder`'s public key.
+2. Start a token with that block and `root.holder` as the proof, then
+   `attenuate` once per entry in `blocks` with its `next` key.
+3. Assert every `expected` value matches byte for byte.
+4. Verify `token_b64url` against `policy` at `now` and compare the
+   claims.
+5. Verify every `tampered` token and assert it fails with its `code`.
 
-If both implementations pass, they agree on the wire format. If a spec
-change shifts the bytes, regenerate the fixtures (the script is the
-source of truth) and commit the new fixtures alongside the spec change.
+If both implementations pass, they agree on the wire format. If a
+spec change shifts the bytes, regenerate the fixtures (the script is
+the source of truth) and commit them alongside the spec change.

@@ -1,20 +1,24 @@
 # gatekey
 
-Three-layer macaroon signer, attenuator, and verifier for cryptographic
-LLM governance. Issued by an organization, signed by a user, attenuated
-by sub-agents — every LLM call carries a chain of authority you can
-verify offline.
+Macaroon signer, attenuator and verifier for cryptographic LLM
+governance. An organization grants a person, the person grants an
+agent, an agent grants a sub-agent — every LLM call carries the chain
+of authority, and anyone with the org's public key can verify it
+offline.
 
 ```
-gatekey
-  org   ──ECDSA──▶  user_authorization   (who, for how long, in which realms)
-  user  ──Ed25519─▶ invocation           (this specific run, this budget)
-  agent ──HMAC───▶  attenuation[]        (narrower scope for each sub-agent)
+gatekey (v2: a signed block chain)
+  block 0   signed by the org     → hands the chain to a person's key
+  block 1   signed by the person  → hands a run to an agent's key
+  block n   signed by block n-1's key → hands a narrower run to a sub-agent
+  proof     the private key of the last block's key
 ```
 
-The wire format, signing inputs, and HMAC chain are pinned to a
-language-neutral spec with fixtures, so a TS signer and a Go verifier
-(or any other implementation) agree byte-for-byte.
+Every hop is the same block type. The proof makes the chain
+impossible to shorten: a holder can add a block, never remove one.
+The wire format and signing input are pinned to a language-neutral
+spec with fixtures, so a TS signer and a Go verifier (or any other
+implementation) agree byte for byte.
 
 ## Install
 
@@ -22,84 +26,75 @@ language-neutral spec with fixtures, so a TS signer and a Go verifier
 npm install gatekey
 ```
 
-Requires Node >= 20.
+Requires Node >= 20. Version 1.0.0 is the v2 token; 0.x is the v1
+three-layer format and is not compatible.
 
 ## Quick start
 
-### Mint an invocation macaroon
+### Mint a delegation
 
-The custodial / phase-1 case: the issuer holds both the org private key
-and the user's private key, and produces a complete macaroon ready to
-put in an `x-macaroon` header.
+The custodial case: the issuer holds the org key and the person's key,
+and produces a token an agent can use.
 
 ```ts
-import {
-  signUserAuthorizationSingle,
-  signInvocation,
-  encodeMacaroon,
-  type UserAuthorizationUnsigned,
-  type InvocationUnsigned,
-} from "gatekey";
+import { attenuate, bytesToHex, encodeToken, signRoot, type Token } from "gatekey";
 
-const uaUnsigned: UserAuthorizationUnsigned = {
-  user_id: "user_123",
-  user_pubkey: { alg: "ed25519", key: userPubkeyHex },
-  agents: ["browser-agent", "pr-monitor"],
-  // Optional. Single-swarm deployments can omit `budget` entirely.
-  // Multi-swarm deployments can opt into per-realm caps via
-  // `budget.realm_budgets`.
-  budget: {
-    max_per_invocation_usd: 25,
-    max_total_usd: 1000,
+const now = new Date();
+const later = (s: number) => new Date(now.getTime() + s * 1000).toISOString();
+
+// Block 0: the org grants a person. `user_id` only goes here.
+const root = signRoot(
+  "org_acme",
+  {
+    run_id: "grant_alice_01",
+    user_id: "alice",
+    agents: ["browser-agent", "pr-monitor"], // who alice may hand a run to
+    max_cost_usd: 1000,                      // everything under this grant
+    iat: now.toISOString(),
+    exp: later(7 * 24 * 3600),
+    nonce: randomNonceHex(),
   },
-  iat: new Date().toISOString(),
-  exp: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
-  nonce: randomNonceHex(),
-};
-const ua = signUserAuthorizationSingle(uaUnsigned, orgPrivKey);
+  alicePub,          // { alg: "ed25519", key: "<hex>" }
+  orgKey,            // { alg: "ecdsa-secp256k1-sha256", priv: Uint8Array }
+);
+const alicesToken: Token = { v: 2, org_id: "org_acme", blocks: [root], proof: bytesToHex(alicePriv) };
 
-const invUnsigned: InvocationUnsigned = {
-  agents: ["browser-agent"],
+// Block 1: alice hands one run to an agent. A fresh agent key is made
+// for it, and its private half becomes the new proof.
+const agentToken = attenuate(alicesToken, {
   run_id: "run_abc",
-  max_cost_usd: 10.0,
+  agent: "browser-agent",
+  max_cost_usd: 10,
   max_steps: 200,
-  iat: new Date().toISOString(),
-  exp: new Date(Date.now() + 3600 * 1000).toISOString(),
+  iat: now.toISOString(),
+  exp: later(3600),
   nonce: randomNonceHex(),
-};
-const invocation = signInvocation(invUnsigned, userPrivKey);
-
-const macaroon = encodeMacaroon({
-  v: 1,
-  org_id: "org_acme",
-  user_authorization: ua,
-  invocation,
-  attenuations: [],
 });
 
-// → base64url string. Send as `x-macaroon: <macaroon>`.
+const header = encodeToken(agentToken); // → `x-macaroon: <header>`
 ```
+
+Alice's private key never leaves the issuer: the agent gets only its
+own.
 
 ### Attenuate before spawning a sub-agent
 
-A parent agent narrows the scope (smaller budget, narrower agent list)
-before handing control to a child. No network call, no extra signature —
-one HMAC.
+The agent narrows the scope before handing control to a child. No
+network call: one signature with the key it holds.
 
 ```ts
-import { attenuate, invocationSigBytes } from "gatekey";
+import { attenuate } from "gatekey";
 
-const childCaveats = {
-  agents: ["browser-agent", "browser-agent.search"],
-  max_cost_usd: 2.0,        // ≤ parent
-  max_steps: 50,             // ≤ parent
+const childToken = attenuate(agentToken, {
   run_id: "run_child_xyz",
-  exp: new Date(Date.now() + 600 * 1000).toISOString(),  // ≤ parent
+  agent: "browser-agent.search",
+  max_cost_usd: 2,
+  max_steps: 50,
+  iat: new Date().toISOString(),
+  exp: new Date(Date.now() + 600 * 1000).toISOString(),
   nonce: randomNonceHex(),
-};
-
-const link = attenuate(invocationSigBytes(invocation), childCaveats);
-// Append `link` to macaroon.attenuations and re-encode.
+});
+// Hand `childToken` to the child. It cannot get `agentToken` back.
 ```
 
 ### Verify
@@ -108,71 +103,67 @@ const link = attenuate(invocationSigBytes(invocation), childCaveats);
 import { verify, VerifyError } from "gatekey";
 
 try {
-  const claims = verify(macaroon, policy, new Date());
-  // claims.agent_name, claims.run_id, claims.effective_caveats, ...
+  const claims = verify(header, policy, new Date());
+  // claims.user_id, claims.agent_name, claims.run_id, claims.chain, ...
 } catch (e) {
   if (e instanceof VerifyError) {
-    // e.code is one of: macaroon_malformed, invalid_user_authorization,
-    // user_authorization_expired, invalid_invocation_signature,
-    // invocation_violated, macaroon_expired, attenuation_invalid,
-    // attenuation_widened, macaroon_unsupported_version.
+    // e.code: macaroon_malformed, macaroon_unsupported_version,
+    // invalid_root_signature, invalid_block_signature, invalid_proof,
+    // macaroon_expired, agent_not_permitted.
   }
   throw e;
 }
 ```
 
 The verifier is pure: no I/O, no clock except the one you hand it, no
-revocation list. Wrap it with whatever transport + freshness checks
+revocation list. Wrap it with whatever transport and freshness checks
 your environment needs.
 
 ## Concepts
 
-- **`user_authorization`** — signed once by the organization. Names a
-  user, embeds their public key, and lists the agents they may act
-  as. Optionally carries a `budget` block with per-invocation and
-  cumulative caps, plus opt-in per-realm caps (`realm_budgets`) for
-  multi-swarm deployments. ECDSA-secp256k1 single-key or multisig
-  (`multisig-v1`).
-- **`invocation`** — signed by the user (with the key embedded in the
-  UA above). Names one specific run with its own budget, step ceiling,
-  and expiry. Ed25519.
-- **`attenuation`** — appended by a parent agent for each sub-agent.
-  HMAC-SHA256 chained from the user's invocation signature, then from
-  each previous attenuation's HMAC. Each link narrows the effective
-  caveats; widening is rejected at verify time.
+- **Block** — `{ caveats, next_key, sig }`. `sig` is by the key the
+  block before named (the org's policy for block 0) over
+  `JCS({ org_id, prev, caveats, next_key })`, where `prev` is the hash
+  of the whole block before. `next_key` signs the next block.
+- **Caveats** — one shape on every block: `run_id`, `nonce`, `iat`,
+  `exp` (required), and `user_id` (block 0 only), `agent`, `agents`,
+  `max_cost_usd`, `max_steps`, `realms` (optional). An optional field
+  that is present must be non-zero: leave it out for "no cap".
+- **No narrowing** — every block's limits apply; the gateway checks
+  all of them, and each block's counter includes everything under it.
+  A child that claims more than its parent still stops at the
+  parent's cap. The one cross-block rule: when a block sets `agents`,
+  the next block's `agent` must be in it.
+- **Proof** — the private key of the last `next_key`. `attenuate`
+  replaces it, so nothing downstream ever holds an earlier one.
+- **Keys** — Ed25519 or secp256k1 for any key (`generateKey(alg)`).
+  An org may sign block 0 as an m-of-n `multisig-v1`.
 
-Every signed layer (UA, invocation, attenuation) shares the same
-shape — a flat `agents` set plus an optional `budget` — and phase
-11's symmetric `narrow(parent, child)` rule applies at every
-boundary. See
-[`phase-11-symmetric-recursive-authorization.md`](https://github.com/stakwork/mothership/blob/main/plans/phases/phase-11-symmetric-recursive-authorization.md)
-for the protocol; the `agents[]` axis flips direction at the
-UA→invocation boundary (subset) versus the attenuation boundaries
-(lineage extension).
-
-The verifier returns `Claims` with the **effective caveats** — the
-intersection of the invocation and every attenuation in the chain.
-This is the authoritative answer to "what is this call allowed to do."
+`verify` returns `Claims`: `user_id`, `agent_name` (the innermost
+`agent`), `run_id` (the last block's), `iat` (block 0's), `exp` (the
+earliest), `chain` (every block's `run_id` and caps, outermost first),
+`nonces`, and `permitted_realms`. Spec:
+[`phase-13-signed-block-chain.md`](https://github.com/stakwork/mothership/blob/main/plans/phases/phase-13-signed-block-chain.md).
 
 ## API surface
 
 | Export | Purpose |
 |---|---|
-| `signUserAuthorizationSingle`, `signUserAuthorizationMultisig` | Sign the org→user layer. |
-| `signInvocation`, `invocationSigBytes` | Sign the user→run layer. |
-| `attenuate`, `computeAttenuationHmac`, `attenuationSigBytes` | Append a sub-agent link. |
-| `encodeMacaroon`, `decodeMacaroon` | Base64url transport encoding. |
+| `signRoot`, `signRootMultisig` | Block 0: the org's grant. |
+| `attenuate` | Append a block with the token's proof key; returns a new token with a new proof. |
+| `generateKey`, `keyPair`, `publicKeyBytes`, `signWith`, `verifyWith` | Keys by algorithm. |
+| `encodeToken`, `decodeToken` | Base64url transport encoding. |
 | `verify`, `VerifyError` | Full end-to-end verifier. |
-| `jcs`, `signingBytes` | RFC 8785 canonicalization (advanced). |
-| `ed25519Sign/Verify/PublicKey`, `ecdsaSign/Verify/PublicKey` | Raw primitives (advanced / keygen). |
+| `blockSigningBytes`, `blockHash`, `jcs`, `signingBytes` | Signing input and RFC 8785 canonicalization (advanced). |
+| `ed25519Sign/Verify/PublicKey`, `ecdsaSign/Verify/PublicKey` | Raw primitives (advanced). |
 | `bytesToHex`, `hexToBytes`, `bytesToBase64url`, `base64urlToBytes`, `utf8Bytes` | Encoding helpers. |
 | `rootFromLeaves`, `rootFromLeafHashes`, `hashLeaf`, `leafHash`, `nodeHash`, `emptyRoot` | Transparency log: RFC 9162 Merkle tree hashing. |
 | `verifyInclusion`, `verifyConsistency` | Transparency log: proof verifiers (RFC 9162 §2.1.3.2 / §2.1.4.2). |
 | `verifySth`, `signSth`, `sthSigningBytes` | Transparency log: signed tree heads. |
 
-Types: `Macaroon`, `UserAuthorization`, `Invocation`, `Attenuation`,
-`Claims`, `EffectiveCaveats`, `Policy`, `PubKey`, plus their `*Unsigned`
-variants. See `src/types.ts` for the wire shape.
+Types: `Token`, `Block`, `Caveats`, `RealmCap`, `Claims`, `ChainLayer`,
+`Policy`, `PubKey`, `KeyPair`, `Sig`. See `src/types.ts` for the wire
+shape.
 
 ## Transparency log
 
@@ -206,58 +197,42 @@ if (bytesToHex(rootFromLeaves(allLeaves)) !== page.sth.root_hash) {
 Light witnesses that hold only heads use `verifyConsistency` with the
 served `consistency_proof`; per-call receipts (Part 2, later) verify
 with `verifyInclusion`. Leaf and head shapes are `TlogLeaf` and
-`SignedTreeHead`; the head signature is the macaroon construction,
-`ECDSA-secp256k1-SHA256` over `JCS(sth \ sig)`.
+`SignedTreeHead`; the head signature is `ECDSA-secp256k1-SHA256` over
+`JCS(sth \ sig)`.
 
 ## Wire format
 
 ```
 base64url( JCS({
-  v: 1,
+  v: 2,
   org_id: "...",
-  user_authorization: {
-    user_id, user_pubkey, agents, budget?, iat, exp, nonce,
-    org_sig: { alg, sig } | { alg: "multisig-v1", sigs: [...] }
-  },
-  invocation: {
-    agents, run_id, max_cost_usd, max_steps, budget?,
-    iat, exp, nonce,
-    user_sig: { alg: "ed25519", sig }
-  },
-  attenuations: [
-    { caveats: { agents, max_cost_usd, max_steps, run_id, budget?,
-                 exp, nonce },
-      hmac: "..." },
+  blocks: [
+    { caveats: { run_id, nonce, iat, exp,
+                 user_id?, agent?, agents?, max_cost_usd?, max_steps?,
+                 realms?: { [realm_id]: { max_cost_usd? } } },
+      next_key: { alg, key },
+      sig: { alg, sig } | { alg: "multisig-v1", sigs: [...] } },   // multisig: block 0 only
     ...
-  ]
+  ],
+  proof: "<hex private key of the last next_key>"
 }) )
 ```
 
-`budget` is the same shape at every layer:
-
-```
-budget: {
-  max_per_invocation_usd?: number,
-  max_total_usd?:          number,
-  realm_budgets?:          { [realm_id]: { max_total_usd: number } }
-}
-```
-
 All binary fields are lowercase hex (no `0x` prefix). All timestamps
-are RFC 3339 UTC strings. Canonical JSON is RFC 8785 (JCS).
+are RFC 3339 UTC strings. Canonical JSON is RFC 8785 (JCS). An
+unknown field or a `null` anywhere is malformed.
 
 ## Cross-language
 
-A Go verifier exists in the same source repository
+A Go verifier and signer live in the same repository
 ([`mothership/auth/go/`](https://github.com/stakwork/mothership/tree/main/auth/go))
-and shares the test fixtures, so byte-equivalence is enforced in CI.
+and share the test fixtures, so byte equivalence is enforced in CI.
 For the transparency log the roles flip: the Go gateway is the
 producer and generates `auth/fixtures/tlog-*.json`
 (`go test ./internal/tlog -update`), and this package's test checks
-them byte-for-byte.
-Sub-agent attenuation only requires HMAC-SHA256 + JCS + hex encoding —
-the spec and fixtures together let any language implement an attenuator
-in a few dozen lines.
+them byte for byte. Attenuating in another language needs JCS,
+SHA-256, Ed25519 (or secp256k1) and hex; the spec and fixtures are
+the contract.
 
 ## License
 

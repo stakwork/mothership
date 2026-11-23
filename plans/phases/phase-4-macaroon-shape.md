@@ -1,5 +1,13 @@
 # Phase 4 — Macaroon Shape: Wire Format, Encoding, Verification
 
+> **Superseded (phase 13):** the three-layer wire format below
+> (`user_authorization` → `invocation` → HMAC `attenuations`) is
+> replaced by a chain of one signed block type plus a proof key; see
+> `phase-13-signed-block-chain.md`. v1 could be unwrapped: the token
+> carried every link's HMAC and link 0's key was the invocation's own
+> signature, so a holder could drop its own link. This doc stays as
+> the record of v1 and of why each field exists.
+
 > **Status (phase 11 cutover):** the wire shape described here is
 > the phase-4 baseline. Phase 11 (`phase-11-symmetric-recursive-authorization.md`)
 > refines it: the `permissions` wrapper is gone (UA carries flat
