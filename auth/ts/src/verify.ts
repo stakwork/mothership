@@ -162,8 +162,10 @@ export function encodeToken(t: Token): string {
 
 // ─── structure ────────────────────────────────────────────────────────
 //
-// Strict: an unknown field anywhere is malformed. A caveat this verifier
-// does not know could be a limit it would silently skip.
+// Strict, and the same rules as the Go verifier: an unknown field or a
+// null anywhere is malformed (a caveat this verifier does not know could
+// be a limit it would silently skip), and an optional field that is
+// present must be non-zero.
 
 const CAVEAT_FIELDS: Record<keyof Caveats, true> = {
   run_id: true, nonce: true, iat: true, exp: true, user_id: true,
@@ -203,15 +205,17 @@ function validateCaveats(c: unknown, i: number): void {
   }
   if (o.agent !== undefined) nonEmptyString(o.agent, `${where}.agent`);
   if (o.agents !== undefined) {
-    if (!Array.isArray(o.agents)) malformed(`${where}.agents must be an array`);
+    if (!Array.isArray(o.agents) || o.agents.length === 0) malformed(`${where}.agents must be a non-empty array of names`);
     o.agents.forEach((a, j) => nonEmptyString(a, `${where}.agents[${j}]`));
   }
   if (o.max_cost_usd !== undefined) amount(o.max_cost_usd, `${where}.max_cost_usd`);
   if (o.max_steps !== undefined) {
-    if (!Number.isInteger(o.max_steps) || (o.max_steps as number) < 0) malformed(`${where}.max_steps must be a whole number ≥ 0`);
+    amount(o.max_steps, `${where}.max_steps`);
+    if (!Number.isInteger(o.max_steps)) malformed(`${where}.max_steps must be a whole number`);
   }
   if (o.realms !== undefined) {
     const realms = object(o.realms, `${where}.realms`);
+    if (Object.keys(realms).length === 0) malformed(`${where}.realms must name at least one realm`);
     for (const [r, cap] of Object.entries(realms)) {
       const rc = object(cap, `${where}.realms.${r}`) as RealmCap & Record<string, unknown>;
       only(rc, ["max_cost_usd"], `${where}.realms.${r}`);
@@ -268,8 +272,11 @@ function hex(v: unknown, where: string): void {
   }
 }
 
+// An optional number that is present must be > 0: leave it out for "no
+// cap". With that rule a valid token's JSON is exactly what the Go
+// structs marshal to, so both verifiers rebuild the same signed bytes.
 function amount(v: unknown, where: string): void {
-  if (typeof v !== "number" || !Number.isFinite(v) || v < 0) malformed(`${where} must be a number ≥ 0`);
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) malformed(`${where} must be a number > 0 (omit it for no cap)`);
 }
 
 function keyAlg(v: unknown, where: string): KeyAlg {

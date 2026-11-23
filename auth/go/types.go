@@ -1,17 +1,20 @@
 package macaroon
 
-// Wire types for the three-layer macaroon. Field names and JSON tags
-// match plans/phases/phase-4-macaroon-shape.md and the
-// symmetric-recursive refinement in
-// plans/phases/phase-11-symmetric-recursive-authorization.md.
+// Wire types for the v2 macaroon: a chain of signed blocks plus a proof
+// key. Field names and JSON tags match auth/ts/src/types.ts and
+// plans/phases/phase-13-signed-block-chain.md.
 //
-// All binary fields (pubkeys, signatures, HMACs, nonces) are
-// lowercase hex strings WITHOUT 0x prefix. All timestamps are RFC
-// 3339 / ISO 8601 UTC strings.
+// All binary fields (keys, signatures, nonces, the proof) are lowercase
+// hex WITHOUT 0x. All timestamps are RFC 3339 UTC.
+//
+// An optional field that is present must be non-zero (leave it out for
+// "no limit"). That makes every valid token's JSON exactly what these
+// structs marshal to, so Go can rebuild signing input from a parsed
+// block and get the bytes the TS signer signed.
 
-// ─── signature envelopes ──────────────────────────────────────────────
+// ─── keys and signatures ──────────────────────────────────────────────
 
-// SigAlg is the algorithm tag for a signature or pubkey.
+// SigAlg is the algorithm tag of a key or signature.
 type SigAlg string
 
 const (
@@ -20,31 +23,26 @@ const (
 	AlgMultisigV1           SigAlg = "multisig-v1"
 )
 
-// Sig is the on-wire shape of an org_sig or user_sig. Multisig
-// envelopes use Sigs; single-key envelopes use Sig.
-//
-// We unmarshal into this single shape and dispatch on Alg in the
-// verifier rather than carrying a sum type — it keeps json.Unmarshal
-// simple and matches what JCS round-trips.
+// PubKey is one public key. Ed25519: 32 bytes. secp256k1: the 33-byte
+// compressed point.
+type PubKey struct {
+	Alg SigAlg `json:"alg"`
+	Key string `json:"key"`
+}
+
+// Sig is a block's signature: one key's (Alg + Sig), or an org's
+// multisig-v1 envelope (Alg + Sigs, block 0 only).
 type Sig struct {
 	Alg  SigAlg   `json:"alg"`
 	Sig  string   `json:"sig,omitempty"`
 	Sigs []SubSig `json:"sigs,omitempty"`
 }
 
-// SubSig is one entry in a multisig-v1 envelope.
+// SubSig is one member's signature in a multisig-v1 envelope.
 type SubSig struct {
 	KeyIndex int    `json:"key_index"`
 	Alg      SigAlg `json:"alg"`
 	Sig      string `json:"sig"`
-}
-
-// ─── pubkeys + policies (trust-registry shape) ────────────────────────
-
-// PubKey is a single public key with its algorithm tag.
-type PubKey struct {
-	Alg SigAlg `json:"alg"`
-	Key string `json:"key"` // hex, no 0x prefix
 }
 
 // PolicyType is the kind of trust-registry policy attached to an org.
@@ -55,11 +53,8 @@ const (
 	PolicyMultisig PolicyType = "multisig"
 )
 
-// Policy is the on-wire trust-registry entry for one org. Phase 4
-// supports two shapes: single-key and m-of-n multisig.
-//
-// JSON unmarshal of either shape lands here; the verifier dispatches
-// on Type. Fields not relevant to the active Type are zero.
+// Policy is the org's trust-registry entry: what block 0's signature is
+// checked against.
 type Policy struct {
 	Type      PolicyType `json:"type"`
 	Key       *PubKey    `json:"key,omitempty"`       // single
@@ -67,189 +62,80 @@ type Policy struct {
 	Keys      []PubKey   `json:"keys,omitempty"`      // multisig
 }
 
-// ─── macaroon layers ──────────────────────────────────────────────────
-
-// RealmBudget is a per-realm spending cap inside a Budget. Phase 11
-// adds the realm-budgets map so multi-swarm deployments can pin
-// exact per-swarm cumulative caps without relying on the implicit
-// "max_total_usd leaks across swarms" behavior.
-//
-// Only MaxTotalUSD is defined today. Per-realm step / rate caps are
-// an open question in phase 11 (see "Open questions" §2) and can be
-// added without breaking compatibility — RealmBudget is a struct,
-// not a bare number, precisely to leave that door open.
-type RealmBudget struct {
-	MaxTotalUSD float64 `json:"max_total_usd"`
+// KeyPair is a key with its private half: the 32-byte Ed25519 seed or
+// secp256k1 scalar.
+type KeyPair struct {
+	Alg  SigAlg
+	Priv []byte
+	Pub  PubKey
 }
 
-// Budget is the spending envelope carried by any signed layer.
-// Phase 11 renamed UserBudget→Budget so the same shape appears on
-// UserAuthorization, Invocation, and AttenuationCaveats. Children
-// narrow against parents using the rules in verify.go's narrow().
-//
-// All fields are independently optional. Zero / nil means "no cap on
-// this axis" — consistent with the empty-by-default convention used
-// for agent_budgets in phase 6. The verifier checks structural
-// narrowing (child ≤ parent at each axis); the adapter enforces the
-// cumulative caps (MaxTotalUSD, RealmBudgets[r].MaxTotalUSD) against
-// Redis at request time.
-//
-// Pointer + omitempty so layers that don't carry a budget produce
-// byte-identical wire bytes to a pre-phase-11 macaroon when present
-// only on the UA — important for the "single-swarm operators don't
-// pay for any of this" promise.
-type Budget struct {
-	MaxTotalUSD         float64                `json:"max_total_usd,omitempty"`
-	MaxPerInvocationUSD float64                `json:"max_per_invocation_usd,omitempty"`
-	RealmBudgets        map[string]RealmBudget `json:"realm_budgets,omitempty"`
+// ─── the token ────────────────────────────────────────────────────────
+
+// RealmCap is one realm's cap. A zero MaxCostUSD (omitted) permits the
+// realm with no cap of its own.
+type RealmCap struct {
+	MaxCostUSD float64 `json:"max_cost_usd,omitempty"`
 }
 
-// UserBudget is a deprecated alias preserved so external callers can
-// continue to read the budget field by its phase-4 name during the
-// phase-11 cutover. New code should use Budget directly.
-//
-// Deprecated: use Budget. Kept only for the cutover window.
-type UserBudget = Budget
-
-// UserAuthorization is the org-signed envelope. The verifier strips
-// OrgSig, JCS-canonicalizes the rest, and verifies that canonical-
-// JSON-bytes against the org policy.
-//
-// Phase 11 changes:
-//   - Permissions wrapper is gone; agents lifted to top-level.
-//   - The singular realm grant disappears; what realms a UA is
-//     permitted on is encoded by Budget.RealmBudgets (opt-in,
-//     multi-swarm only).
-//   - Budget is the rename of UserBudget; same wire shape extended
-//     with realm_budgets.
-type UserAuthorization struct {
-	UserID     string   `json:"user_id"`
-	UserPubkey PubKey   `json:"user_pubkey"`
-	Agents     []string `json:"agents"`
-	Budget     *Budget  `json:"budget,omitempty"`
-	IAT        string   `json:"iat"`
-	Exp        string   `json:"exp"`
-	Nonce      string   `json:"nonce"`
-	OrgSig     Sig      `json:"org_sig"`
+// Caveats is the one shape every block carries. Every field applies to
+// the block it is on and to everything under it.
+type Caveats struct {
+	RunID      string              `json:"run_id"`
+	Nonce      string              `json:"nonce"`
+	IAT        string              `json:"iat"`
+	Exp        string              `json:"exp"`
+	UserID     string              `json:"user_id,omitempty"`      // block 0 only
+	Agent      string              `json:"agent,omitempty"`        // who holds this block's next_key
+	Agents     []string            `json:"agents,omitempty"`       // the next block's agent must be one of these
+	MaxCostUSD float64             `json:"max_cost_usd,omitempty"` // cap on spend under this block
+	MaxSteps   int                 `json:"max_steps,omitempty"`    // cap on calls under this block
+	Realms     map[string]RealmCap `json:"realms,omitempty"`       // when set, the gateway's realm must be a key
 }
 
-// Invocation is the user-signed envelope. Strip UserSig and
-// canonicalize the rest to get the Ed25519 signing input.
-//
-// Phase 11: Realm (singular) is gone; the symmetric Budget block is
-// new and optional — a single-swarm deployment can leave it absent
-// and rely on the UA-level caps alone.
-type Invocation struct {
-	Agents     []string `json:"agents"`
-	RunID      string   `json:"run_id"`
-	MaxCostUSD float64  `json:"max_cost_usd"`
-	MaxSteps   int      `json:"max_steps"`
-	Budget     *Budget  `json:"budget,omitempty"`
-	IAT        string   `json:"iat"`
-	Exp        string   `json:"exp"`
-	Nonce      string   `json:"nonce"`
-	UserSig    Sig      `json:"user_sig"`
+// Block is one hop: limits, the key that signs the next block, and the
+// signature of the key the previous block named (the org's for block 0).
+type Block struct {
+	Caveats Caveats `json:"caveats"`
+	NextKey PubKey  `json:"next_key"`
+	Sig     Sig     `json:"sig"`
 }
 
-// AttenuationCaveats is the narrowed-scope object a parent agent
-// crafts when spawning a sub-agent. The HMAC binds it to the parent's
-// signature.
-//
-// Phase 11: Budget is the new optional block carrying realm_budgets;
-// parents on multi-swarm deployments use it to authorize sub-agents
-// to spend on specific swarms with locally-attenuated caps (no Hive
-// round-trip required to cross realms).
-type AttenuationCaveats struct {
-	Agents     []string `json:"agents"`
-	MaxCostUSD float64  `json:"max_cost_usd"`
-	MaxSteps   int      `json:"max_steps"`
-	RunID      string   `json:"run_id"`
-	Budget     *Budget  `json:"budget,omitempty"`
-	Exp        string   `json:"exp"`
-	Nonce      string   `json:"nonce"`
-}
-
-// Attenuation is one link of the HMAC chain.
-type Attenuation struct {
-	Caveats AttenuationCaveats `json:"caveats"`
-	HMAC    string             `json:"hmac"` // hex
-}
-
-// Macaroon is the full assembled object.
-type Macaroon struct {
-	V                 int               `json:"v"`
-	OrgID             string            `json:"org_id"`
-	UserAuthorization UserAuthorization `json:"user_authorization"`
-	Invocation        Invocation        `json:"invocation"`
-	Attenuations      []Attenuation     `json:"attenuations"`
+// Token is the whole macaroon. Proof is the hex private key matching
+// the last block's NextKey.
+type Token struct {
+	V      int     `json:"v"`
+	OrgID  string  `json:"org_id"`
+	Blocks []Block `json:"blocks"`
+	Proof  string  `json:"proof"`
 }
 
 // ─── verifier output ──────────────────────────────────────────────────
 
-// EffectiveCaveats is the invocation's caveats narrowed by every
-// attenuation in the chain. This is what the plugin enforces.
-//
-// Budget carries the layer's narrowed Budget block (or nil if no
-// budget appears anywhere in the chain). The plugin reads
-// Budget.RealmBudgets for the per-realm membership + cap check.
-type EffectiveCaveats struct {
-	Agents     []string
-	MaxCostUSD float64
-	MaxSteps   int
-	Budget     *Budget
-	Exp        string
-}
-
-// ChainLayer is one budgeted layer of the verified macaroon chain:
-// the invocation first, then each attenuation in order. Phase-6
-// enforcement walks this to accumulate per-run cost/steps
-// (PostLLMHook writes cost:run:<RunID> for every layer) and to cap
-// each layer's spend against its own MaxCostUSD (PreLLMHook cap
-// walk). Exp is the layer's own expiry, RFC 3339 — the TTL axis for
-// that layer's Redis keys.
-//
-// The last element's RunID always equals Claims.RunID (the leaf).
+// ChainLayer is one block's limits as the gateway enforces them: spend
+// and steps under RunID, the realm caps, the block's own expiry (the
+// TTL axis for its Redis keys). Zero caps mean no cap.
 type ChainLayer struct {
 	RunID      string
 	MaxCostUSD float64
 	MaxSteps   int
+	Realms     map[string]RealmCap // nil when the block sets no realms
 	Exp        string
 }
 
-// Claims is the verified output of Verify. Adapters stamp this on
-// their plugin context for downstream hooks.
-//
-// UANonce and UABudget are surfaced separately from the general
-// Nonces list because phase-6 cumulative-spend tracking
-// (cost:ua:<UANonce>) needs them by themselves, before any
-// attenuation processing. UABudget is nil when the UA carried no
-// budget — adapters MUST treat nil as "no UA-level cap" rather than
-// substituting defaults; absent budget is a design choice, not
-// missing data. UAIAT/UAExp carry the UA's own validity window:
-// UAIAT is the comparison axis for revoke_user_before enforcement,
-// UAExp the TTL axis for the cost:ua accumulator.
-//
-// Phase 11:
-//   - Realm (the singular invocation realm) is gone.
-//   - PermittedRealms is the set of realm-ids the verified chain
-//     authorizes spend on. Derived from EffectiveCaveats.Budget.
-//     RealmBudgets — sorted, deduplicated, or nil when no
-//     realm_budgets appears anywhere in the chain (single-swarm
-//     deployments). The plugin's realm-membership check uses
-//     EffectiveCaveats.Budget.RealmBudgets directly; PermittedRealms
-//     is for logging and observability.
+// Claims is what Verify returns. Adapters stamp it on their plugin
+// context for the hooks.
 type Claims struct {
-	OrgID            string
-	UserID           string
-	AgentName        string // last element of the final agents list
-	RunID            string // innermost attenuation's run_id, or invocation's if none
-	EffectiveCaveats EffectiveCaveats
-	UANonce          string       // ua.nonce; key for cost:ua:<nonce>
-	UABudget         *Budget      // nil if UA carried no budget
-	UAIAT            string       // ua.iat; revoke_user_before comparison axis
-	UAExp            string       // ua.exp; TTL axis for cost:ua:<nonce>
-	Chain            []ChainLayer // invocation first, then attenuations in order; last is the leaf
-	PermittedRealms  []string     // sorted keys of EffectiveCaveats.Budget.RealmBudgets, or nil
-	Nonces           []string     // [ua.nonce, inv.nonce, atts[*].caveats.nonce]
-	IAT              string       // invocation.iat
+	OrgID     string
+	UserID    string       // block 0's user_id, or ""
+	AgentName string       // the innermost agent, or ""
+	RunID     string       // the last block's run_id
+	IAT       string       // block 0's iat: the revoke_user_before axis
+	Exp       string       // the earliest exp in the chain
+	Chain     []ChainLayer // every block, outermost first
+	Nonces    []string     // every block's nonce, outermost first
+	// PermittedRealms is the set of realms every block that sets
+	// realms allows, sorted; nil when no block sets realms. For logs:
+	// the gateway checks each block's realms itself.
+	PermittedRealms []string
 }

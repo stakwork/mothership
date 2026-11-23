@@ -10,14 +10,11 @@ type ErrorCode string
 const (
 	ErrMacaroonMalformed          ErrorCode = "macaroon_malformed"
 	ErrMacaroonUnsupportedVersion ErrorCode = "macaroon_unsupported_version"
-	ErrInvalidUserAuthorization   ErrorCode = "invalid_user_authorization"
-	ErrUserAuthorizationExpired   ErrorCode = "user_authorization_expired"
-	ErrInvalidInvocationSig       ErrorCode = "invalid_invocation_signature"
-	ErrInvocationViolated         ErrorCode = "invocation_violated"
-	ErrUAPerInvocationExceeded    ErrorCode = "ua_per_invocation_exceeded"
+	ErrInvalidRootSignature       ErrorCode = "invalid_root_signature"
+	ErrInvalidBlockSignature      ErrorCode = "invalid_block_signature"
+	ErrInvalidProof               ErrorCode = "invalid_proof"
 	ErrMacaroonExpired            ErrorCode = "macaroon_expired"
-	ErrAttenuationInvalid         ErrorCode = "attenuation_invalid"
-	ErrAttenuationWidened         ErrorCode = "attenuation_widened"
+	ErrAgentNotPermitted          ErrorCode = "agent_not_permitted"
 )
 
 // VerifyError is the error type returned by [Verify]. Adapters

@@ -83,9 +83,9 @@ export interface Caveats {
   agent?: string;
   /** When set, the next block's `agent` must be one of these. */
   agents?: string[];
-  /** Cap on spend under this block. Absent or 0: no cap. */
+  /** Cap on spend under this block. Absent: no cap (present must be > 0). */
   max_cost_usd?: number;
-  /** Cap on calls under this block. Absent or 0: no cap. */
+  /** Cap on calls under this block. Absent: no cap (present must be > 0). */
   max_steps?: number;
   /** When set, the gateway's realm must be a key; its cap applies too. */
   realms?: Record<string, RealmCap>;

@@ -1,463 +1,502 @@
 package macaroon
 
+// Pure verifier — Go mirror of auth/ts/src/verify.ts. A token, the
+// org's policy and a clock in; Claims out, or a *VerifyError with a
+// machine-readable Code. No I/O, no revocation: adapters
+// (internal/auth/) add those.
+//
+// One loop: check each block's signature with the key the block before
+// it named (the org's policy for block 0), then check the proof is the
+// private half of the last key. Every block's limits apply; nothing is
+// compared between blocks except agents → agent.
+
 import (
-	"crypto/hmac"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
+	"regexp"
 	"sort"
 	"time"
 )
 
-// Verify checks a macaroon end-to-end against a single org's policy
-// and returns the verified claims.
-//
-// Inputs:
-//   - macaroonB64: the base64url-encoded wire form, as carried in the
-//     x-macaroon HTTP header.
-//   - policy: the trust-registry entry for the macaroon's org.
-//   - now: the verifier's current time. Caveats use absolute exp.
-//
-// Verify is pure: no I/O, no revocation, no Bifrost types. Adapters
-// (internal/auth/) layer revocation + transport on top.
-func Verify(macaroonB64 string, policy Policy, now time.Time) (*Claims, error) {
-	raw, err := Base64urlToBytes(macaroonB64)
+// Verify checks a base64url token (as carried in x-macaroon) against
+// one org's policy.
+func Verify(tokenB64 string, policy Policy, now time.Time) (*Claims, error) {
+	raw, err := Base64urlToBytes(tokenB64)
 	if err != nil {
 		return nil, newError(ErrMacaroonMalformed, fmt.Sprintf("base64url: %v", err))
 	}
 	return VerifyJSON(raw, policy, now)
 }
 
-// VerifyJSON is Verify with a pre-decoded JSON payload. Useful for
-// tests and for adapters that want to peek at fields (e.g. org_id)
-// before policy lookup.
+// VerifyJSON is Verify on the decoded JSON.
 func VerifyJSON(raw []byte, policy Policy, now time.Time) (*Claims, error) {
-	var m Macaroon
-	if err := strictUnmarshalMacaroon(raw, &m); err != nil {
-		return nil, newError(ErrMacaroonMalformed, err.Error())
-	}
-	if m.V != 1 {
-		return nil, newError(ErrMacaroonUnsupportedVersion, fmt.Sprintf("v=%d", m.V))
+	t, vErr := parseToken(raw)
+	if vErr != nil {
+		return nil, vErr
 	}
 
-	if err := verifyUserAuthorization(&m.UserAuthorization, policy); err != nil {
-		return nil, err
-	}
-	if expBefore(m.UserAuthorization.Exp, now) {
-		return nil, newError(ErrUserAuthorizationExpired, m.UserAuthorization.Exp)
-	}
-
-	if err := verifyInvocation(&m.Invocation, &m.UserAuthorization); err != nil {
-		return nil, err
-	}
-	if err := enforceInvocationCaveats(&m.Invocation, &m.UserAuthorization, now); err != nil {
-		return nil, err
-	}
-
-	effective, runID, attNonces, err := walkAttenuations(&m.Invocation, m.UserAuthorization.Budget, m.Attenuations, now)
-	if err != nil {
-		return nil, err
-	}
-
-	agentName := ""
-	if n := len(effective.Agents); n > 0 {
-		agentName = effective.Agents[n-1]
-	}
-
-	nonces := make([]string, 0, 2+len(attNonces))
-	nonces = append(nonces, m.UserAuthorization.Nonce, m.Invocation.Nonce)
-	nonces = append(nonces, attNonces...)
-
-	// Chain: every budgeted layer, outermost first. The enforcement
-	// adapter walks this for the per-run accumulators and the cap
-	// walk; the last element is always the leaf (== runID above).
-	chain := make([]ChainLayer, 0, 1+len(m.Attenuations))
-	chain = append(chain, ChainLayer{
-		RunID:      m.Invocation.RunID,
-		MaxCostUSD: m.Invocation.MaxCostUSD,
-		MaxSteps:   m.Invocation.MaxSteps,
-		Exp:        m.Invocation.Exp,
-	})
-	for _, att := range m.Attenuations {
-		chain = append(chain, ChainLayer{
-			RunID:      att.Caveats.RunID,
-			MaxCostUSD: att.Caveats.MaxCostUSD,
-			MaxSteps:   att.Caveats.MaxSteps,
-			Exp:        att.Caveats.Exp,
-		})
-	}
-
-	return &Claims{
-		OrgID:            m.OrgID,
-		UserID:           m.UserAuthorization.UserID,
-		AgentName:        agentName,
-		RunID:            runID,
-		EffectiveCaveats: effective,
-		UANonce:          m.UserAuthorization.Nonce,
-		UABudget:         m.UserAuthorization.Budget,
-		UAIAT:            m.UserAuthorization.IAT,
-		UAExp:            m.UserAuthorization.Exp,
-		Chain:            chain,
-		PermittedRealms:  permittedRealms(&effective),
-		Nonces:           nonces,
-		IAT:              m.Invocation.IAT,
-	}, nil
-}
-
-// strictUnmarshalMacaroon parses the macaroon JSON and rejects unknown
-// top-level fields. Wire format v=1 has a fixed top-level shape.
-//
-// Two-pass: parse to a probe map to check unknown top-level fields,
-// then parse to the typed struct.
-func strictUnmarshalMacaroon(raw []byte, m *Macaroon) error {
-	var probe map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &probe); err != nil {
-		return fmt.Errorf("top-level: %w", err)
-	}
-	for k := range probe {
-		switch k {
-		case "v", "org_id", "user_authorization", "invocation", "attenuations":
-		default:
-			return fmt.Errorf("unknown top-level field: %s", k)
+	var key *PubKey // nil = block 0, checked against the policy
+	var prev *Block
+	for i := range t.Blocks {
+		b := &t.Blocks[i]
+		msg, err := BlockSigningBytes(t.OrgID, prev, b.Caveats, b.NextKey)
+		if err != nil {
+			return nil, newError(ErrMacaroonMalformed, err.Error())
 		}
+		if key == nil {
+			if !verifyRoot(policy, msg, b.Sig) {
+				return nil, newError(ErrInvalidRootSignature, "block 0's signature does not match the org's policy")
+			}
+		} else if b.Sig.Alg != key.Alg || !VerifyWith(*key, msg, b.Sig.Sig) {
+			return nil, newError(ErrInvalidBlockSignature,
+				fmt.Sprintf("block %d's signature does not match block %d's next_key", i, i-1))
+		}
+		if mustTime(b.Caveats.Exp).Before(now) {
+			return nil, newError(ErrMacaroonExpired, fmt.Sprintf("block %d expired at %s", i, b.Caveats.Exp))
+		}
+		if prev != nil && prev.Caveats.Agents != nil && !contains(prev.Caveats.Agents, b.Caveats.Agent) {
+			return nil, newError(ErrAgentNotPermitted,
+				fmt.Sprintf("block %d's agent %q is not in block %d's agents", i, b.Caveats.Agent, i-1))
+		}
+		key = &b.NextKey
+		prev = b
 	}
-	if err := json.Unmarshal(raw, m); err != nil {
-		return fmt.Errorf("typed unmarshal: %w", err)
+
+	// The proof: only the holder of the last key's private half can show
+	// it. A token with its last block dropped would need the private half
+	// of the block before, which no holder downstream of it ever had.
+	if !proofMatches(*key, t.Proof) {
+		return nil, newError(ErrInvalidProof, "proof is not the private key of the last block's next_key")
 	}
-	return nil
+	return claimsOf(t), nil
 }
 
-// ─── org-signed user_authorization ────────────────────────────────────
+// ─── signatures ───────────────────────────────────────────────────────
 
-func verifyUserAuthorization(ua *UserAuthorization, policy Policy) error {
-	msg, err := JCSStripField(ua, "org_sig")
-	if err != nil {
-		return newError(ErrMacaroonMalformed, fmt.Sprintf("jcs ua: %v", err))
-	}
-
+func verifyRoot(policy Policy, msg []byte, sig Sig) bool {
 	switch policy.Type {
 	case PolicySingle:
-		if policy.Key == nil {
-			return newError(ErrInvalidUserAuthorization, "policy.single missing key")
-		}
-		if ua.OrgSig.Alg != AlgEcdsaSecp256k1Sha256 {
-			return newError(ErrInvalidUserAuthorization,
-				fmt.Sprintf("expected single-key ecdsa, got alg=%s", ua.OrgSig.Alg))
-		}
-		pub, err := HexToBytes(policy.Key.Key)
-		if err != nil {
-			return newError(ErrInvalidUserAuthorization, fmt.Sprintf("policy pubkey hex: %v", err))
-		}
-		sig, err := HexToBytes(ua.OrgSig.Sig)
-		if err != nil {
-			return newError(ErrInvalidUserAuthorization, fmt.Sprintf("org_sig hex: %v", err))
-		}
-		if !EcdsaSecp256k1Verify(pub, msg, sig) {
-			return newError(ErrInvalidUserAuthorization, "ecdsa verify failed")
-		}
-		return nil
-
+		return policy.Key != nil && sig.Alg == policy.Key.Alg && VerifyWith(*policy.Key, msg, sig.Sig)
 	case PolicyMultisig:
-		if ua.OrgSig.Alg != AlgMultisigV1 {
-			return newError(ErrInvalidUserAuthorization,
-				fmt.Sprintf("expected multisig-v1, got alg=%s", ua.OrgSig.Alg))
+		if sig.Alg != AlgMultisigV1 || policy.Threshold <= 0 {
+			return false
 		}
-		validCount := 0
-		seen := make(map[int]bool)
-		for _, entry := range ua.OrgSig.Sigs {
-			if seen[entry.KeyIndex] {
-				continue // ignore duplicates
-			}
-			seen[entry.KeyIndex] = true
-			if entry.KeyIndex < 0 || entry.KeyIndex >= len(policy.Keys) {
+		seen := map[int]bool{}
+		valid := 0
+		for _, e := range sig.Sigs {
+			if seen[e.KeyIndex] {
 				continue
 			}
-			pk := policy.Keys[entry.KeyIndex]
-			if entry.Alg != pk.Alg || entry.Alg != AlgEcdsaSecp256k1Sha256 {
+			seen[e.KeyIndex] = true
+			if e.KeyIndex < 0 || e.KeyIndex >= len(policy.Keys) {
 				continue
 			}
-			pubBytes, err := HexToBytes(pk.Key)
-			if err != nil {
-				continue
-			}
-			sigBytes, err := HexToBytes(entry.Sig)
-			if err != nil {
-				continue
-			}
-			if EcdsaSecp256k1Verify(pubBytes, msg, sigBytes) {
-				validCount++
+			pk := policy.Keys[e.KeyIndex]
+			if e.Alg == pk.Alg && VerifyWith(pk, msg, e.Sig) {
+				valid++
 			}
 		}
-		if validCount < policy.Threshold {
-			return newError(ErrInvalidUserAuthorization,
-				fmt.Sprintf("multisig threshold not met: %d/%d", validCount, policy.Threshold))
-		}
-		return nil
-
-	default:
-		return newError(ErrInvalidUserAuthorization,
-			fmt.Sprintf("unknown policy type: %s", policy.Type))
+		return valid >= policy.Threshold
 	}
+	return false
 }
 
-// ─── user-signed invocation ───────────────────────────────────────────
-
-func verifyInvocation(inv *Invocation, ua *UserAuthorization) error {
-	if inv.UserSig.Alg != AlgEd25519 || ua.UserPubkey.Alg != AlgEd25519 {
-		return newError(ErrInvalidInvocationSig,
-			"non-ed25519 user signature/pubkey not supported in v=1")
+func proofMatches(key PubKey, proofHex string) bool {
+	priv, err := HexToBytes(proofHex)
+	if err != nil || len(priv) != 32 {
+		return false
 	}
-	msg, err := JCSStripField(inv, "user_sig")
-	if err != nil {
-		return newError(ErrMacaroonMalformed, fmt.Sprintf("jcs inv: %v", err))
-	}
-	pub, err := HexToBytes(ua.UserPubkey.Key)
-	if err != nil {
-		return newError(ErrInvalidInvocationSig, fmt.Sprintf("user_pubkey hex: %v", err))
-	}
-	sig, err := HexToBytes(inv.UserSig.Sig)
-	if err != nil {
-		return newError(ErrInvalidInvocationSig, fmt.Sprintf("user_sig hex: %v", err))
-	}
-	if !Ed25519Verify(pub, msg, sig) {
-		return newError(ErrInvalidInvocationSig, "ed25519 verify failed")
-	}
-	return nil
+	pub, err := PublicKeyBytes(key.Alg, priv)
+	return err == nil && BytesToHex(pub) == key.Key
 }
 
-// enforceInvocationCaveats is the UA→invocation boundary check. This
-// is the one boundary where `agents` narrows (`child ⊆ parent`) — the
-// user grants a set of agents on the UA, and the invocation picks a
-// subset to actually use this run. Subsequent attenuation boundaries
-// extend lineage (`child ⊇ parent`); see narrowAttenuation.
-func enforceInvocationCaveats(inv *Invocation, ua *UserAuthorization, now time.Time) error {
-	if len(inv.Agents) == 0 {
-		return newError(ErrInvocationViolated, "invocation.agents must be non-empty")
+// ─── claims ───────────────────────────────────────────────────────────
+
+func claimsOf(t Token) *Claims {
+	first := t.Blocks[0].Caveats
+	last := t.Blocks[len(t.Blocks)-1].Caveats
+	c := &Claims{
+		OrgID:  t.OrgID,
+		UserID: first.UserID,
+		RunID:  last.RunID,
+		IAT:    first.IAT,
+		Exp:    first.Exp,
+		Chain:  make([]ChainLayer, 0, len(t.Blocks)),
+		Nonces: make([]string, 0, len(t.Blocks)),
 	}
-	for _, a := range inv.Agents {
-		if !containsString(ua.Agents, a) {
-			return newError(ErrInvocationViolated,
-				fmt.Sprintf("agent %s not in user permissions", a))
+	var realms map[string]bool
+	for _, b := range t.Blocks {
+		cv := b.Caveats
+		if cv.Agent != "" {
+			c.AgentName = cv.Agent
 		}
+		if mustTime(cv.Exp).Before(mustTime(c.Exp)) {
+			c.Exp = cv.Exp
+		}
+		if cv.Realms != nil {
+			next := map[string]bool{}
+			for r := range cv.Realms {
+				if realms == nil || realms[r] {
+					next[r] = true
+				}
+			}
+			realms = next
+		}
+		c.Chain = append(c.Chain, ChainLayer{
+			RunID:      cv.RunID,
+			MaxCostUSD: cv.MaxCostUSD,
+			MaxSteps:   cv.MaxSteps,
+			Realms:     cv.Realms,
+			Exp:        cv.Exp,
+		})
+		c.Nonces = append(c.Nonces, cv.Nonce)
 	}
-	if expBefore(inv.Exp, now) {
-		return newError(ErrMacaroonExpired, fmt.Sprintf("invocation expired at %s", inv.Exp))
+	if realms != nil {
+		c.PermittedRealms = make([]string, 0, len(realms))
+		for r := range realms {
+			c.PermittedRealms = append(c.PermittedRealms, r)
+		}
+		sort.Strings(c.PermittedRealms)
 	}
-	// Exp narrowing: invocation must not outlive the UA. Signature-
-	// time field comparison, no clock dependency.
-	if inv.Exp > ua.Exp {
-		return newError(ErrInvocationViolated,
-			fmt.Sprintf("invocation exp %s > ua exp %s", inv.Exp, ua.Exp))
-	}
-	// Per-invocation budget cap. Pure signature-time check — the
-	// cumulative cap (MaxTotalUSD) is enforced by the adapter via
-	// Redis in PreLLMHook, not here.
-	if ua.Budget != nil && ua.Budget.MaxPerInvocationUSD > 0 &&
-		inv.MaxCostUSD > ua.Budget.MaxPerInvocationUSD {
-		return newError(ErrUAPerInvocationExceeded,
-			fmt.Sprintf("invocation max_cost_usd %v > ua.budget.max_per_invocation_usd %v",
-				inv.MaxCostUSD, ua.Budget.MaxPerInvocationUSD))
-	}
-	// Budget narrowing: phase 11's symmetric rule applies between
-	// the UA's Budget and the invocation's Budget block. The
-	// invocation block, when present, must not widen any axis the UA
-	// constrained.
-	if err := narrowBudget(ua.Budget, inv.Budget); err != nil {
-		return err
-	}
-	return nil
+	return c
 }
 
-// ─── attenuation chain walk ───────────────────────────────────────────
-
-func walkAttenuations(inv *Invocation, uaBudget *Budget, atts []Attenuation, now time.Time) (EffectiveCaveats, string, []string, error) {
-	prevSigBytes, err := HexToBytes(inv.UserSig.Sig)
-	if err != nil {
-		return EffectiveCaveats{}, "", nil, newError(ErrAttenuationInvalid,
-			fmt.Sprintf("invocation user_sig hex: %v", err))
-	}
-	// Effective Budget at the invocation layer = the invocation's
-	// own block when set, else inherit the UA's. This mirrors the
-	// "Mixed mode" rule in phase-11: parent has budget, child omits
-	// → child inherits unchanged. Without this, realm_budgets set
-	// only at the UA wouldn't propagate to the membership check.
-	effective := EffectiveCaveats{
-		Agents:     append([]string{}, inv.Agents...),
-		MaxCostUSD: inv.MaxCostUSD,
-		MaxSteps:   inv.MaxSteps,
-		Budget:     mergeAttenuationBudget(uaBudget, inv.Budget),
-		Exp:        inv.Exp,
-	}
-	runID := inv.RunID
-	nonces := make([]string, 0, len(atts))
-
-	for i, att := range atts {
-		expected, err := ComputeAttenuationHMAC(prevSigBytes, att.Caveats)
-		if err != nil {
-			return effective, runID, nonces, newError(ErrAttenuationInvalid,
-				fmt.Sprintf("attenuation[%d] hmac compute: %v", i, err))
-		}
-		gotHmac, err := HexToBytes(att.HMAC)
-		if err != nil {
-			return effective, runID, nonces, newError(ErrAttenuationInvalid,
-				fmt.Sprintf("attenuation[%d] hmac hex: %v", i, err))
-		}
-		if !hmac.Equal(expected, gotHmac) {
-			return effective, runID, nonces, newError(ErrAttenuationInvalid,
-				fmt.Sprintf("attenuation[%d] hmac mismatch", i))
-		}
-		if err := narrowAttenuation(effective, att.Caveats); err != nil {
-			return effective, runID, nonces, err
-		}
-		if expBefore(att.Caveats.Exp, now) {
-			return effective, runID, nonces, newError(ErrMacaroonExpired,
-				fmt.Sprintf("attenuation[%d] expired at %s", i, att.Caveats.Exp))
-		}
-		effective = EffectiveCaveats{
-			Agents:     append([]string{}, att.Caveats.Agents...),
-			MaxCostUSD: att.Caveats.MaxCostUSD,
-			MaxSteps:   att.Caveats.MaxSteps,
-			Budget:     mergeAttenuationBudget(effective.Budget, att.Caveats.Budget),
-			Exp:        att.Caveats.Exp,
-		}
-		runID = att.Caveats.RunID
-		nonces = append(nonces, att.Caveats.Nonce)
-		prevSigBytes = gotHmac
-	}
-
-	return effective, runID, nonces, nil
-}
-
-// narrowAttenuation is the parent→child check at every attenuation
-// boundary. Agents is the lineage-extension axis (child ⊇ parent);
-// every other axis is shrink-only (child ≤ parent). This is the half
-// of phase 11's symmetric rule that differs from the UA→invocation
-// boundary handled in enforceInvocationCaveats.
-func narrowAttenuation(parent EffectiveCaveats, child AttenuationCaveats) error {
-	// agents: child ⊇ parent — child must include every parent entry,
-	// and may add. (The agents list grows; cost/steps/exp shrink.)
-	// The last entry remains "the most-specific agent" for billing.
-	for _, a := range parent.Agents {
-		if !containsString(child.Agents, a) {
-			return newError(ErrAttenuationWidened,
-				fmt.Sprintf("child agents dropped parent entry: %s", a))
-		}
-	}
-	if child.MaxCostUSD > parent.MaxCostUSD {
-		return newError(ErrAttenuationWidened,
-			fmt.Sprintf("child max_cost_usd %v > parent %v", child.MaxCostUSD, parent.MaxCostUSD))
-	}
-	if child.MaxSteps > parent.MaxSteps {
-		return newError(ErrAttenuationWidened,
-			fmt.Sprintf("child max_steps %d > parent %d", child.MaxSteps, parent.MaxSteps))
-	}
-	// RFC 3339 UTC strings of the same length and Z suffix are
-	// lexicographically ordered the same as their time values.
-	if child.Exp > parent.Exp {
-		return newError(ErrAttenuationWidened,
-			fmt.Sprintf("child exp %s > parent %s", child.Exp, parent.Exp))
-	}
-	if err := narrowBudget(parent.Budget, child.Budget); err != nil {
-		return err
-	}
-	return nil
-}
-
-// narrowBudget enforces the symmetric budget-narrowing rule between
-// any parent→child layer boundary (UA→invocation, invocation→
-// attenuation, attenuation→attenuation). Returns ErrAttenuationWidened
-// when the child widens any axis. nil child means "inherits parent
-// unchanged"; nil parent + non-nil child means "child introduces a
-// constraint that didn't exist" — that's narrowing, allowed.
+// ─── structure ────────────────────────────────────────────────────────
 //
-// Realm-budgets narrowing (rule 4 in phase-11): for each realm-id
-// key in child.RealmBudgets, the same key must exist in
-// parent.RealmBudgets (if parent set realm_budgets at all), and the
-// child's per-realm cap must be ≤ parent's. Child may also OMIT
-// realms the parent permitted — that's narrowing, allowed.
-func narrowBudget(parent, child *Budget) error {
-	if child == nil {
-		return nil
+// Strict, and the same rules as the TS verifier: an unknown field or a
+// null anywhere is malformed (a caveat this verifier does not know could
+// be a limit it would silently skip), and an optional field that is
+// present must be non-zero. The second rule is what lets
+// BlockSigningBytes rebuild the signed bytes from the parsed structs.
+
+var (
+	hexRe     = regexp.MustCompile(`^[0-9a-f]+$`)
+	rfc3339Re = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$`)
+)
+
+type fields map[string]json.RawMessage
+
+func malformed(format string, a ...any) *VerifyError {
+	return newError(ErrMacaroonMalformed, fmt.Sprintf(format, a...))
+}
+
+func objectOf(raw json.RawMessage, where string) (fields, *VerifyError) {
+	if t := bytes.TrimSpace(raw); len(t) == 0 || t[0] != '{' {
+		return nil, malformed("%s must be an object", where)
 	}
-	if parent != nil {
-		if parent.MaxPerInvocationUSD > 0 && child.MaxPerInvocationUSD > 0 &&
-			child.MaxPerInvocationUSD > parent.MaxPerInvocationUSD {
-			return newError(ErrAttenuationWidened,
-				fmt.Sprintf("child budget.max_per_invocation_usd %v > parent %v",
-					child.MaxPerInvocationUSD, parent.MaxPerInvocationUSD))
+	var m fields
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, malformed("%s: %v", where, err)
+	}
+	for k, v := range m {
+		if string(bytes.TrimSpace(v)) == "null" {
+			return nil, malformed("%s.%s must not be null", where, k)
 		}
-		if parent.MaxTotalUSD > 0 && child.MaxTotalUSD > 0 &&
-			child.MaxTotalUSD > parent.MaxTotalUSD {
-			return newError(ErrAttenuationWidened,
-				fmt.Sprintf("child budget.max_total_usd %v > parent %v",
-					child.MaxTotalUSD, parent.MaxTotalUSD))
-		}
 	}
-	if len(child.RealmBudgets) == 0 {
-		return nil
-	}
-	// If parent set realm_budgets, every child key must appear in it
-	// and not widen its cap. If parent did NOT set realm_budgets,
-	// the child is introducing per-realm scoping that didn't exist
-	// upstream — that's narrowing, allowed.
-	if parent == nil || len(parent.RealmBudgets) == 0 {
-		return nil
-	}
-	for r, cb := range child.RealmBudgets {
-		pb, ok := parent.RealmBudgets[r]
-		if !ok {
-			return newError(ErrAttenuationWidened,
-				fmt.Sprintf("child budget.realm_budgets[%s] not in parent", r))
-		}
-		if pb.MaxTotalUSD > 0 && cb.MaxTotalUSD > 0 &&
-			cb.MaxTotalUSD > pb.MaxTotalUSD {
-			return newError(ErrAttenuationWidened,
-				fmt.Sprintf("child budget.realm_budgets[%s].max_total_usd %v > parent %v",
-					r, cb.MaxTotalUSD, pb.MaxTotalUSD))
+	return m, nil
+}
+
+func (m fields) only(where string, allowed ...string) *VerifyError {
+	for k := range m {
+		if !contains(allowed, k) {
+			return malformed("%s: unknown field %s", where, k)
 		}
 	}
 	return nil
 }
 
-// mergeAttenuationBudget propagates the effective Budget down the
-// chain. The rule mirrors narrowBudget's intent: a child that omits
-// budget inherits the parent's; a child that sets budget replaces
-// the parent's (already validated as narrowing by narrowBudget).
-func mergeAttenuationBudget(parent, child *Budget) *Budget {
-	if child == nil {
-		return parent
+func (m fields) str(key, where string) (string, bool, *VerifyError) {
+	raw, ok := m[key]
+	if !ok {
+		return "", false, nil
 	}
-	return child
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil || s == "" {
+		return "", true, malformed("%s.%s must be a non-empty string", where, key)
+	}
+	return s, true, nil
 }
 
-// permittedRealms returns the sorted list of realm-ids the effective
-// caveats authorize spend on. Returns nil when no realm_budgets
-// appears anywhere in the chain — single-swarm deployments rely on
-// this nil-ness to skip the membership check entirely.
-func permittedRealms(eff *EffectiveCaveats) []string {
-	if eff == nil || eff.Budget == nil || len(eff.Budget.RealmBudgets) == 0 {
-		return nil
+func (m fields) requiredStr(key, where string) (string, *VerifyError) {
+	s, ok, err := m.str(key, where)
+	if err != nil {
+		return "", err
 	}
-	out := make([]string, 0, len(eff.Budget.RealmBudgets))
-	for r := range eff.Budget.RealmBudgets {
-		out = append(out, r)
+	if !ok {
+		return "", malformed("%s.%s is required", where, key)
 	}
-	sort.Strings(out)
-	return out
+	return s, nil
+}
+
+func (m fields) hex(key, where string) (string, *VerifyError) {
+	s, err := m.requiredStr(key, where)
+	if err != nil {
+		return "", err
+	}
+	if len(s)%2 != 0 || !hexRe.MatchString(s) {
+		return "", malformed("%s.%s must be lowercase hex", where, key)
+	}
+	return s, nil
+}
+
+// positive reads an optional number that must be > 0 when present.
+func (m fields) positive(key, where string) (float64, *VerifyError) {
+	raw, ok := m[key]
+	if !ok {
+		return 0, nil
+	}
+	var f float64
+	if err := json.Unmarshal(raw, &f); err != nil || !(f > 0) || math.IsInf(f, 0) {
+		return 0, malformed("%s.%s must be a number > 0 (omit it for no cap)", where, key)
+	}
+	return f, nil
+}
+
+func keyAlg(s, where string) (SigAlg, *VerifyError) {
+	alg := SigAlg(s)
+	if _, ok := pubKeyBytes[alg]; !ok {
+		return "", malformed("%s: unsupported alg %s", where, s)
+	}
+	return alg, nil
+}
+
+func parseToken(raw []byte) (Token, *VerifyError) {
+	var t Token
+	top, err := objectOf(raw, "token")
+	if err != nil {
+		return t, err
+	}
+	var v float64
+	if json.Unmarshal(top["v"], &v) != nil || v != 2 {
+		return t, newError(ErrMacaroonUnsupportedVersion, fmt.Sprintf("v=%s", string(top["v"])))
+	}
+	t.V = 2
+	if err := top.only("token", "v", "org_id", "blocks", "proof"); err != nil {
+		return t, err
+	}
+	if t.OrgID, err = top.requiredStr("org_id", "token"); err != nil {
+		return t, err
+	}
+	if t.Proof, err = top.hex("proof", "token"); err != nil {
+		return t, err
+	}
+	var blocks []json.RawMessage
+	if json.Unmarshal(top["blocks"], &blocks) != nil || len(blocks) == 0 {
+		return t, malformed("blocks must be a non-empty array")
+	}
+	for i, rb := range blocks {
+		b, err := parseBlock(rb, i)
+		if err != nil {
+			return t, err
+		}
+		t.Blocks = append(t.Blocks, b)
+	}
+	return t, nil
+}
+
+func parseBlock(raw json.RawMessage, i int) (Block, *VerifyError) {
+	var b Block
+	where := fmt.Sprintf("block %d", i)
+	m, err := objectOf(raw, where)
+	if err != nil {
+		return b, err
+	}
+	if err := m.only(where, "caveats", "next_key", "sig"); err != nil {
+		return b, err
+	}
+	if b.Caveats, err = parseCaveats(m["caveats"], i); err != nil {
+		return b, err
+	}
+	if b.NextKey, err = parsePubKey(m["next_key"], where+".next_key"); err != nil {
+		return b, err
+	}
+	if b.Sig, err = parseSig(m["sig"], i); err != nil {
+		return b, err
+	}
+	return b, nil
+}
+
+func parseCaveats(raw json.RawMessage, i int) (Caveats, *VerifyError) {
+	var c Caveats
+	where := fmt.Sprintf("block %d.caveats", i)
+	m, err := objectOf(raw, where)
+	if err != nil {
+		return c, err
+	}
+	if err := m.only(where, "run_id", "nonce", "iat", "exp", "user_id", "agent", "agents",
+		"max_cost_usd", "max_steps", "realms"); err != nil {
+		return c, err
+	}
+	for _, f := range []struct {
+		key string
+		dst *string
+	}{{"run_id", &c.RunID}, {"nonce", &c.Nonce}, {"iat", &c.IAT}, {"exp", &c.Exp}} {
+		if *f.dst, err = m.requiredStr(f.key, where); err != nil {
+			return c, err
+		}
+	}
+	for _, ts := range []string{c.IAT, c.Exp} {
+		if _, perr := time.Parse(time.RFC3339, ts); perr != nil || !rfc3339Re.MatchString(ts) {
+			return c, malformed("invalid timestamp: %s", ts)
+		}
+	}
+	var ok bool
+	if c.UserID, ok, err = m.str("user_id", where); err != nil {
+		return c, err
+	} else if ok && i > 0 {
+		return c, malformed("%s: user_id is only allowed on block 0", where)
+	}
+	if c.Agent, _, err = m.str("agent", where); err != nil {
+		return c, err
+	}
+	if raw, ok := m["agents"]; ok {
+		if json.Unmarshal(raw, &c.Agents) != nil || len(c.Agents) == 0 {
+			return c, malformed("%s.agents must be a non-empty array of names", where)
+		}
+		for _, a := range c.Agents {
+			if a == "" {
+				return c, malformed("%s.agents must not hold an empty name", where)
+			}
+		}
+	}
+	if c.MaxCostUSD, err = m.positive("max_cost_usd", where); err != nil {
+		return c, err
+	}
+	steps, err := m.positive("max_steps", where)
+	if err != nil {
+		return c, err
+	}
+	if steps != math.Trunc(steps) || steps > math.MaxInt32 {
+		return c, malformed("%s.max_steps must be a whole number", where)
+	}
+	c.MaxSteps = int(steps)
+	if raw, ok := m["realms"]; ok {
+		rm, err := objectOf(raw, where+".realms")
+		if err != nil {
+			return c, err
+		}
+		if len(rm) == 0 {
+			return c, malformed("%s.realms must name at least one realm", where)
+		}
+		c.Realms = make(map[string]RealmCap, len(rm))
+		for r, rraw := range rm {
+			rw := where + ".realms." + r
+			cm, err := objectOf(rraw, rw)
+			if err != nil {
+				return c, err
+			}
+			if err := cm.only(rw, "max_cost_usd"); err != nil {
+				return c, err
+			}
+			cap, err := cm.positive("max_cost_usd", rw)
+			if err != nil {
+				return c, err
+			}
+			c.Realms[r] = RealmCap{MaxCostUSD: cap}
+		}
+	}
+	return c, nil
+}
+
+func parsePubKey(raw json.RawMessage, where string) (PubKey, *VerifyError) {
+	var k PubKey
+	m, err := objectOf(raw, where)
+	if err != nil {
+		return k, err
+	}
+	if err := m.only(where, "alg", "key"); err != nil {
+		return k, err
+	}
+	alg, err := m.requiredStr("alg", where)
+	if err != nil {
+		return k, err
+	}
+	if k.Alg, err = keyAlg(alg, where+".alg"); err != nil {
+		return k, err
+	}
+	if k.Key, err = m.hex("key", where); err != nil {
+		return k, err
+	}
+	if len(k.Key) != pubKeyBytes[k.Alg]*2 {
+		return k, malformed("%s.key has the wrong length for %s", where, k.Alg)
+	}
+	return k, nil
+}
+
+func parseSig(raw json.RawMessage, i int) (Sig, *VerifyError) {
+	var s Sig
+	where := fmt.Sprintf("block %d.sig", i)
+	m, err := objectOf(raw, where)
+	if err != nil {
+		return s, err
+	}
+	alg, err := m.requiredStr("alg", where)
+	if err != nil {
+		return s, err
+	}
+	if SigAlg(alg) == AlgMultisigV1 {
+		if i > 0 {
+			return s, malformed("%s: only block 0 can carry a multisig signature", where)
+		}
+		if err := m.only(where, "alg", "sigs"); err != nil {
+			return s, err
+		}
+		s.Alg = AlgMultisigV1
+		var subs []json.RawMessage
+		if json.Unmarshal(m["sigs"], &subs) != nil || subs == nil {
+			return s, malformed("%s.sigs must be an array", where)
+		}
+		for j, sraw := range subs {
+			sw := fmt.Sprintf("%s.sigs[%d]", where, j)
+			sm, err := objectOf(sraw, sw)
+			if err != nil {
+				return s, err
+			}
+			if err := sm.only(sw, "key_index", "alg", "sig"); err != nil {
+				return s, err
+			}
+			var idx float64
+			if json.Unmarshal(sm["key_index"], &idx) != nil || idx < 0 || idx != math.Trunc(idx) || idx > math.MaxInt32 {
+				return s, malformed("%s.key_index must be a whole number ≥ 0", sw)
+			}
+			salg, err := sm.requiredStr("alg", sw)
+			if err != nil {
+				return s, err
+			}
+			sub := SubSig{KeyIndex: int(idx)}
+			if sub.Alg, err = keyAlg(salg, sw+".alg"); err != nil {
+				return s, err
+			}
+			if sub.Sig, err = sm.hex("sig", sw); err != nil {
+				return s, err
+			}
+			s.Sigs = append(s.Sigs, sub)
+		}
+		return s, nil
+	}
+	if err := m.only(where, "alg", "sig"); err != nil {
+		return s, err
+	}
+	if s.Alg, err = keyAlg(alg, where+".alg"); err != nil {
+		return s, err
+	}
+	if s.Sig, err = m.hex("sig", where); err != nil {
+		return s, err
+	}
+	return s, nil
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────
 
-func expBefore(iso string, now time.Time) bool {
-	t, err := time.Parse(time.RFC3339, iso)
-	if err != nil {
-		// Malformed timestamps are rejected at parse time; treat as
-		// expired here defensively so we never accept them.
-		return true
-	}
-	return t.Before(now)
+// mustTime parses a timestamp parseToken already validated.
+func mustTime(s string) time.Time {
+	t, _ := time.Parse(time.RFC3339, s)
+	return t
 }
 
-func containsString(haystack []string, needle string) bool {
+func contains(haystack []string, needle string) bool {
 	for _, s := range haystack {
 		if s == needle {
 			return true

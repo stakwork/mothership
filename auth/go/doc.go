@@ -1,29 +1,24 @@
-// Package macaroon implements both signer and verifier for the
-// three-layer macaroon defined in plans/phases/phase-4-macaroon-shape.md.
+// Package macaroon signs and verifies the v2 macaroon defined in
+// plans/phases/phase-13-signed-block-chain.md: a chain of blocks, each
+// signed by the key the block before it named (the org's policy for
+// block 0), plus a proof key, the private half of the last key, that
+// makes the chain impossible to shorten.
 //
-// Pure means: no I/O, no Bifrost types, no ambient state. Two public
-// entry-point surfaces:
+// Pure means: no I/O, no Bifrost types, no ambient state.
 //
-//   - Verify (verify.go) takes the macaroon (base64url), the trusting
-//     org's policy, and the current time, and returns either verified
-//     claims or an error with a machine-readable Code.
-//   - SignUserAuthorizationSingle / SignUserAuthorizationMultisig /
-//     SignInvocation (sign.go), Attenuate (attenuate.go), and
-//     EncodeMacaroon (encode.go) build a wire-format macaroon from
-//     unsigned layer objects and private keys. These are what a Go
-//     issuer (e.g. a standalone reference issuer, or a future Go
-//     migration of Hive's /macaroons/issue handler) imports.
+//   - Verify (verify.go) takes the token (base64url), the org's policy
+//     and the current time, and returns verified Claims or a
+//     *VerifyError with a machine-readable Code.
+//   - SignRoot / SignRootMultisig, Attenuate and EncodeToken (sign.go)
+//     build a token: the org signs block 0 for a person's key, and
+//     every later hop is one Attenuate.
 //
-// Adapters (e.g. internal/auth/) wrap the verifier with header
-// extraction, trust-registry lookup, Redis-backed revocation, and
-// bifrost.Error shaping. Adapters hold no cryptographic knowledge of
-// their own.
+// Adapters (internal/auth/) wrap the verifier with header extraction,
+// trust-registry lookup, Redis-backed revocation and caps, and
+// bifrost.Error shaping.
 //
-// Cross-language byte-equivalence with the TypeScript sibling
-// (auth/ts/) is enforced by auth/fixtures/. Both
-// sides load the same fixtures and assert every intermediate value
-// reproduces byte-for-byte — including Go-side re-signing, which is
-// well-defined because Ed25519 is deterministic per RFC 8032 and
-// ECDSA-secp256k1 is deterministic per RFC 6979 with BIP 62 low-s
-// normalization in both implementations.
+// Byte-equivalence with the TypeScript sibling (auth/ts/, npm
+// `gatekey`) is enforced by auth/fixtures/: both sides rebuild every
+// fixture, match every intermediate value, and check every tampered
+// token fails with the same code.
 package macaroon
