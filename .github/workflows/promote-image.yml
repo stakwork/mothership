@@ -1,0 +1,98 @@
+name: Promote image
+
+# Points a CHANNEL tag (`stable` by default) at a release's image:
+# ghcr.io/stakwork/mothership:<tag>, which publish.yml built when the
+# release was published, is copied by digest to :<channel>. Nothing is
+# rebuilt. `latest` moves with every release; a channel moves only when
+# someone runs this.
+#
+# A stadeum box follows `stable` (stack/stadeum.yml in stakwork/stadeum) and
+# its ops moves the gateway together with strut in the box's nightly window.
+# stadeum's `scripts/promote.sh mothership [version]` runs this workflow for
+# the newest release, or the one it names, and checks the tag moved.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The release whose image to promote (e.g. v0.5.0 or 0.5.0)'
+        required: true
+      channel:
+        description: 'The channel tag to move'
+        required: true
+        default: stable
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: promote-image
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/stakwork/mothership
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check the inputs
+        id: what
+        env:
+          VERSION: ${{ inputs.version }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          # A channel is a name of its own: never `latest`, a version or a sha.
+          if [[ ! "$CHANNEL" =~ ^[a-z][a-z-]*$ || "$CHANNEL" == "latest" ]]; then
+            echo "::error::channel must be lowercase letters and dashes, and not 'latest' (got '$CHANNEL')"
+            exit 1
+          fi
+          # A release's image is tagged with its git tag, v and all.
+          version=v${VERSION#v}
+          if [[ ! "$version" =~ ^v[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "::error::version must be a release's version, like v0.5.0 (got '$VERSION')"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Move the channel tag
+        env:
+          VERSION: ${{ steps.what.outputs.version }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          src="$IMAGE:$VERSION"
+          if ! raw=$(docker buildx imagetools inspect --raw "$src" 2> /dev/null); then
+            echo "::error::no image $src: publish the release $VERSION (publish.yml) first"
+            exit 1
+          fi
+          # A box may be amd64 or arm64 (a Mac): a single-platform image would
+          # crash-loop on the other.
+          platforms=$(jq -r '[.manifests[]?.platform | select(.os == "linux") | .architecture] | unique | join(" ")' <<< "$raw")
+          for arch in amd64 arm64; do
+            if [[ " $platforms " != *" $arch "* ]]; then
+              echo "::error::$src has no linux/$arch image (it has: ${platforms:-none})"
+              exit 1
+            fi
+          done
+          docker buildx imagetools create -t "$IMAGE:$CHANNEL" "$src"
+          digest=$(docker buildx imagetools inspect "$IMAGE:$CHANNEL" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          {
+            echo "### \`$CHANNEL\` → $VERSION"
+            echo
+            echo "| Image | From | Digest |"
+            echo "| --- | --- | --- |"
+            echo "| $IMAGE:$CHANNEL | \`$VERSION\` | \`$digest\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
