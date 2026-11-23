@@ -1,31 +1,55 @@
 {
-  "description": "Deterministic seed keys used by all fixtures. Reproducible: anyone running scripts/regenerate-fixtures.ts gets the same values. NOT secret — published in the repo.",
-  "org_keys": [
-    {
-      "index": 0,
+  "description": "Fixed seed keys used by every fixture. Reproducible: anyone running scripts/regenerate-fixtures.ts gets the same values. NOT secret: published in the repo.",
+  "keys": {
+    "org": {
       "alg": "ecdsa-secp256k1-sha256",
       "priv_hex": "0000000000000000000000000000000000000000000000000000000000000001",
       "pub_hex": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
     },
-    {
-      "index": 1,
+    "org2": {
       "alg": "ecdsa-secp256k1-sha256",
       "priv_hex": "0000000000000000000000000000000000000000000000000000000000000002",
       "pub_hex": "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
     },
-    {
-      "index": 2,
+    "org3": {
       "alg": "ecdsa-secp256k1-sha256",
       "priv_hex": "0000000000000000000000000000000000000000000000000000000000000003",
       "pub_hex": "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
-    }
-  ],
-  "user_keys": [
-    {
-      "index": 0,
+    },
+    "orgEd25519": {
+      "alg": "ed25519",
+      "priv_hex": "3333333333333333333333333333333333333333333333333333333333333333",
+      "pub_hex": "17cb79fb2b4120f2b1ec65e4198d6e08b28e813feb01e4a400839b85e18080ce"
+    },
+    "person": {
       "alg": "ed25519",
       "priv_hex": "1111111111111111111111111111111111111111111111111111111111111111",
       "pub_hex": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737"
+    },
+    "personSecp256k1": {
+      "alg": "ecdsa-secp256k1-sha256",
+      "priv_hex": "000000000000000000000000000000000000000000000000000000000000000a",
+      "pub_hex": "03a0434d9e47f3c86235477c7b1ae6ae5d3442d49b1943c2b752a68e2a47e247c7"
+    },
+    "agent1": {
+      "alg": "ed25519",
+      "priv_hex": "2121212121212121212121212121212121212121212121212121212121212121",
+      "pub_hex": "884b8857f4eaa1613c61504db34d4beaf346517a0e31de3cddd4d9b4201d9d0b"
+    },
+    "agent2": {
+      "alg": "ed25519",
+      "priv_hex": "2222222222222222222222222222222222222222222222222222222222222222",
+      "pub_hex": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0"
+    },
+    "agent3": {
+      "alg": "ed25519",
+      "priv_hex": "2323232323232323232323232323232323232323232323232323232323232323",
+      "pub_hex": "74f85cda34d1c27c4621484731e91579c3d9c6cfc0d94b281aa11e9162058aa9"
+    },
+    "intruder": {
+      "alg": "ed25519",
+      "priv_hex": "9999999999999999999999999999999999999999999999999999999999999999",
+      "pub_hex": "332ebe8d27cb7323b3a401c1c13b5dd64bccc0e10ecda1c2b5d11a03779a85e5"
     }
-  ]
+  }
 }

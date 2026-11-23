@@ -1,265 +1,144 @@
 /**
- * Wire types for the three-layer macaroon. Names and shapes match
- * `plans/phases/phase-4-macaroon-shape.md` and the
- * symmetric-recursive refinement in
- * `plans/phases/phase-11-symmetric-recursive-authorization.md`.
+ * Wire types for the v2 macaroon: a chain of signed blocks plus a
+ * proof key. Spec: `plans/phases/phase-13-signed-block-chain.md`.
  *
- * All binary fields (pubkeys, signatures, HMACs, nonces) are lowercase
- * hex strings WITHOUT `0x` prefix. All timestamps are RFC 3339 / ISO
- * 8601 UTC strings.
+ * All binary fields (keys, signatures, nonces, the proof) are
+ * lowercase hex strings WITHOUT `0x`. All timestamps are RFC 3339 UTC.
  */
 
-// ─── signature envelopes ──────────────────────────────────────────────
+// ─── keys and signatures ──────────────────────────────────────────────
 
-export type SigAlg =
-  | "ed25519"
-  | "ecdsa-secp256k1-sha256"
-  | "multisig-v1";
+/** A single key's algorithm. Any block may use either. */
+export type KeyAlg = "ed25519" | "ecdsa-secp256k1-sha256";
 
-export interface Ed25519Sig {
-  alg: "ed25519";
-  /** 64-byte signature, hex-encoded (128 chars). */
+export type SigAlg = KeyAlg | "multisig-v1";
+
+/**
+ * A public key. `ed25519`: 32 bytes (64 hex). `ecdsa-secp256k1-sha256`:
+ * 33-byte compressed point (66 hex).
+ */
+export interface PubKey {
+  alg: KeyAlg;
+  key: string;
+}
+
+/** One signature by one key: 64 bytes, hex (ECDSA as compact r||s, low-s). */
+export interface SingleSig {
+  alg: KeyAlg;
   sig: string;
 }
 
-export interface EcdsaSecp256k1Sig {
-  alg: "ecdsa-secp256k1-sha256";
-  /** Compact r||s, low-s normalized (BIP 62). 64 bytes, hex-encoded (128 chars). */
-  sig: string;
-}
-
+/** An m-of-n org signature. Only block 0 can carry one. */
 export interface MultisigV1Sig {
   alg: "multisig-v1";
-  sigs: Array<{
-    key_index: number;
-    alg: Exclude<SigAlg, "multisig-v1">;
-    sig: string;
-  }>;
+  sigs: Array<{ key_index: number; alg: KeyAlg; sig: string }>;
 }
 
-export type OrgSig = EcdsaSecp256k1Sig | MultisigV1Sig;
-export type UserSig = Ed25519Sig;
+export type Sig = SingleSig | MultisigV1Sig;
 
-// ─── pubkeys + policies (trust-registry shape) ────────────────────────
-
-export interface Ed25519PubKey {
-  alg: "ed25519";
-  /** 32-byte raw pubkey, hex-encoded (64 chars). */
-  key: string;
-}
-
-export interface EcdsaSecp256k1PubKey {
-  alg: "ecdsa-secp256k1-sha256";
-  /** 33-byte compressed pubkey, hex-encoded (66 chars). */
-  key: string;
-}
-
-export type PubKey = Ed25519PubKey | EcdsaSecp256k1PubKey;
-
+/** The org's trust-registry entry: what block 0's `sig` is checked against. */
 export interface SinglePolicy {
   type: "single";
-  key: EcdsaSecp256k1PubKey;
+  key: PubKey;
 }
 
 export interface MultisigPolicy {
   type: "multisig";
   threshold: number;
-  keys: EcdsaSecp256k1PubKey[];
+  keys: PubKey[];
 }
 
 export type Policy = SinglePolicy | MultisigPolicy;
 
-// ─── macaroon layers ──────────────────────────────────────────────────
+/** A key with its private half, as `generateKey` returns it. */
+export interface KeyPair {
+  alg: KeyAlg;
+  /** 32 bytes: the Ed25519 seed or the secp256k1 scalar. */
+  priv: Uint8Array;
+  pub: PubKey;
+}
 
-/**
- * Per-realm spending cap inside a `Budget`. Phase 11 adds the
- * `realm_budgets` map so multi-swarm deployments can pin exact
- * per-swarm cumulative caps without relying on the implicit
- * "max_total_usd leaks across swarms" behavior.
- *
- * Only `max_total_usd` is defined today. Per-realm step / rate caps
- * are an open question in phase 11 (see "Open questions" §2) and
- * can be added without breaking compatibility — `RealmBudget` is a
- * struct, not a bare number, precisely to leave that door open.
- */
-export interface RealmBudget {
-  max_total_usd: number;
+// ─── the token ────────────────────────────────────────────────────────
+
+/** A per-realm cap. `{}` permits the realm with no cap of its own. */
+export interface RealmCap {
+  max_cost_usd?: number;
 }
 
 /**
- * Spending envelope carried by any signed layer. Phase 11 renamed
- * `UserBudget` → `Budget` so the same shape appears on
- * `UserAuthorization`, `Invocation`, and `AttenuationCaveats`.
- * Children narrow against parents using the rules in `verify.ts`'s
- * narrowing functions.
- *
- * All fields are independently optional. Zero / undefined means "no
- * cap on this axis" — consistent with the empty-by-default
- * convention used for `agent_budgets` in phase 6. The verifier
- * checks structural narrowing (child ≤ parent at each axis); the
- * adapter enforces the cumulative caps (`max_total_usd`,
- * `realm_budgets[r].max_total_usd`) against Redis at request time.
- *
- * Layers that omit `budget` produce byte-identical wire bytes to a
- * pre-phase-11 macaroon when the field was present only on the UA —
- * important for the "single-swarm operators don't pay for any of
- * this" promise.
+ * One shape on every block. Every field applies to the block it is on
+ * and to everything under it; the gateway checks every block's limits,
+ * so a child never needs to restate (or be compared with) its parent's.
  */
-export interface Budget {
-  max_total_usd?: number;
-  max_per_invocation_usd?: number;
-  realm_budgets?: Record<string, RealmBudget>;
-}
-
-/**
- * Deprecated alias preserved so external callers can continue to
- * read the budget field by its phase-4 name during the phase-11
- * cutover. New code should use `Budget` directly.
- */
-export type UserBudget = Budget;
-
-export interface UserAuthorizationUnsigned {
-  user_id: string;
-  user_pubkey: Ed25519PubKey;
-  /**
-   * Permitted agents (phase 11 lifted this from the `permissions`
-   * wrapper to top-level). Invocations narrow by picking a subset.
-   */
-  agents: string[];
-  /**
-   * Optional. Absent on the wire ⇒ no UA-level budget enforcement.
-   * Byte-identical to a pre-budget macaroon when omitted.
-   */
-  budget?: Budget;
+export interface Caveats {
+  /** The key this block's spend, steps, meta and kill switch go under. */
+  run_id: string;
+  /** 128-bit random hex: the revocation handle. */
+  nonce: string;
   iat: string;
   exp: string;
-  nonce: string;
+  /** The person the org hands the chain to. Block 0 only. */
+  user_id?: string;
+  /** The agent that holds this block's `next_key`. */
+  agent?: string;
+  /** When set, the next block's `agent` must be one of these. */
+  agents?: string[];
+  /** Cap on spend under this block. Absent or 0: no cap. */
+  max_cost_usd?: number;
+  /** Cap on calls under this block. Absent or 0: no cap. */
+  max_steps?: number;
+  /** When set, the gateway's realm must be a key; its cap applies too. */
+  realms?: Record<string, RealmCap>;
 }
 
-export interface UserAuthorization extends UserAuthorizationUnsigned {
-  org_sig: OrgSig;
+export interface Block {
+  caveats: Caveats;
+  /** The key that signs the next block (and whose private half is the proof). */
+  next_key: PubKey;
+  /** Block 0: the org's policy. Later blocks: the previous block's `next_key`. */
+  sig: Sig;
 }
 
-export interface InvocationUnsigned {
-  agents: string[];
-  run_id: string;
-  max_cost_usd: number;
-  max_steps: number;
-  /**
-   * Optional invocation-level budget block. When present, must
-   * narrow against the UA's budget (phase 11 symmetric rule).
-   */
-  budget?: Budget;
-  iat: string;
-  exp: string;
-  nonce: string;
-}
-
-export interface Invocation extends InvocationUnsigned {
-  user_sig: UserSig;
-}
-
-export interface AttenuationCaveats {
-  agents: string[];
-  max_cost_usd: number;
-  max_steps: number;
-  run_id: string;
-  /**
-   * Optional attenuation-level budget block. Used by parents
-   * spawning cross-realm sub-agents to authorize spend on specific
-   * swarms with locally-attenuated caps (no Hive round-trip).
-   */
-  budget?: Budget;
-  exp: string;
-  nonce: string;
-}
-
-export interface Attenuation {
-  caveats: AttenuationCaveats;
-  /** HMAC-SHA256 output, hex-encoded (64 chars). */
-  hmac: string;
-}
-
-export interface Macaroon {
-  v: 1;
+export interface Token {
+  v: 2;
   org_id: string;
-  user_authorization: UserAuthorization;
-  invocation: Invocation;
-  attenuations: Attenuation[];
+  blocks: Block[];
+  /** Hex private key matching the last block's `next_key`. */
+  proof: string;
 }
 
 // ─── verifier output ──────────────────────────────────────────────────
 
-/**
- * Effective caveats: invocation caveats narrowed by every attenuation in
- * the chain. What the plugin actually enforces.
- *
- * `budget` carries the layer's narrowed Budget block (or null if no
- * budget appears anywhere in the chain). The plugin reads
- * `budget.realm_budgets` for the per-realm membership + cap check.
- */
-export interface EffectiveCaveats {
-  agents: string[];
-  max_cost_usd: number;
-  max_steps: number;
-  budget: Budget | null;
-  exp: string;
-}
-
-/**
- * One budgeted layer of the verified chain: the invocation first,
- * then each attenuation in order. Phase-6 enforcement walks this for
- * the per-run accumulators (`cost:run:<run_id>` per layer) and the
- * cap walk (each layer's spend vs its own `max_cost_usd`). The last
- * element's `run_id` always equals `Claims.run_id` (the leaf).
- */
+/** One block's limits, as the gateway enforces them. */
 export interface ChainLayer {
   run_id: string;
+  /** 0 = no cap. */
   max_cost_usd: number;
+  /** 0 = no cap. */
   max_steps: number;
-  /** The layer's own expiry (RFC 3339) — TTL axis for its Redis keys. */
+  realms: Record<string, RealmCap> | null;
   exp: string;
 }
 
 export interface Claims {
   org_id: string;
+  /** Block 0's `user_id`, or "". */
   user_id: string;
-  /** Most-specific agent name (last element of the final `agents` list). */
+  /** The innermost `agent`, or "". */
   agent_name: string;
-  /** Run id of the innermost attenuation, or the invocation if no attenuations. */
+  /** The last block's `run_id`. */
   run_id: string;
-  effective_caveats: EffectiveCaveats;
-  /**
-   * `user_authorization.nonce` — surfaced separately from the general
-   * `nonces` list because phase-6 cumulative-spend tracking
-   * (`cost:ua:<ua_nonce>`) needs it by itself, before any attenuation
-   * processing.
-   */
-  ua_nonce: string;
-  /**
-   * `user_authorization.budget` passed through unchanged. `null` when
-   * the UA carried no budget — adapters MUST treat null as "no
-   * UA-level cap" rather than substituting defaults; absent budget
-   * is a design choice, not missing data.
-   */
-  ua_budget: Budget | null;
-  /** `user_authorization.iat` — the revoke_user_before comparison axis. */
-  ua_iat: string;
-  /** `user_authorization.exp` — TTL axis for the `cost:ua` accumulator. */
-  ua_exp: string;
-  /** Budgeted layers, outermost first: invocation, then attenuations. */
+  /** Block 0's `iat`: the `revoke_user_before` axis. */
+  iat: string;
+  /** The earliest `exp` in the chain. */
+  exp: string;
+  /** Every block, outermost first. */
   chain: ChainLayer[];
+  /** Every block's nonce, outermost first. */
+  nonces: string[];
   /**
-   * Sorted list of realm-ids the verified chain authorizes spend
-   * on. Derived from `effective_caveats.budget.realm_budgets` —
-   * sorted keys, or `null` when no `realm_budgets` appears anywhere
-   * in the chain (single-swarm deployments). The plugin's
-   * realm-membership check uses `effective_caveats.budget.realm_budgets`
-   * directly; `permitted_realms` is for logging and observability.
+   * The realms every block that sets `realms` allows, sorted; null when
+   * no block sets `realms`. For logs: the gateway checks each block.
    */
   permitted_realms: string[] | null;
-  /** Nonces in order: user_authorization, invocation, attenuations[0..]. */
-  nonces: string[];
-  /** Invocation iat — used by adapters for revoke_user_before checks. */
-  iat: string;
 }

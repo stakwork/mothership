@@ -1,666 +1,373 @@
 /**
- * Regenerate `auth/fixtures/*.json` from deterministic seed
+ * Regenerate `auth/fixtures/NN-*.json` and `keys.json` from fixed seed
  * keys. Run with:
  *
  *     npm run regenerate-fixtures
  *
- * The fixtures are the cross-language byte-equivalence contract.
- * Every implementation (Go, TS, polyglot) reproduces every
- * `expected.*` value byte-for-byte; if the implementations agree,
- * the fixtures pass. If a spec change shifts the bytes, regenerate
- * and commit the new fixtures alongside the spec change.
+ * The fixtures are the cross-language contract: the Go and TS tests
+ * rebuild every token from `inputs`, match every `expected` value byte
+ * for byte, and check every tampered token fails with its code. If a
+ * spec change shifts the bytes, regenerate and commit the fixtures with
+ * the change.
+ *
+ * Deterministic: Ed25519 signing is deterministic (RFC 8032) and ECDSA
+ * uses RFC 6979 nonces, so anyone running this gets the same files.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
   attenuate,
-  bytesToBase64url,
+  blockHash,
+  blockSigningBytes,
   bytesToHex,
-  computeAttenuationHmac,
-  ecdsaPublicKey,
-  ed25519PublicKey,
+  encodeToken,
   hexToBytes,
-  invocationSigBytes,
   jcs,
-  signingBytes,
-  signInvocation,
-  signUserAuthorizationMultisig,
-  signUserAuthorizationSingle,
-  utf8Bytes,
+  keyPair,
+  signRoot,
+  signRootMultisig,
+  verify,
+  VerifyError,
 } from "../src/index.js";
-import type {
-  Attenuation,
-  AttenuationCaveats,
-  Budget,
-  Invocation,
-  InvocationUnsigned,
-  Macaroon,
-  UserAuthorization,
-  UserAuthorizationUnsigned,
-} from "../src/index.js";
+import type { Block, Caveats, Claims, KeyAlg, KeyPair, Policy, Token } from "../src/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = join(HERE, "..", "..", "fixtures");
 
-// ─── deterministic seed keys ──────────────────────────────────────────
-//
-// These are FIXED, well-known values. They MUST be reproducible: anyone
-// running this script must get the same fixtures. Do not use them for
-// anything real — they are published in this repo.
+// ─── fixed seed keys (published: never use them for anything real) ────
 
-const ORG_PRIV_HEX =
-  "0000000000000000000000000000000000000000000000000000000000000001";
-const ORG_2_PRIV_HEX =
-  "0000000000000000000000000000000000000000000000000000000000000002";
-const ORG_3_PRIV_HEX =
-  "0000000000000000000000000000000000000000000000000000000000000003";
+const SEEDS = {
+  org: "0000000000000000000000000000000000000000000000000000000000000001",
+  org2: "0000000000000000000000000000000000000000000000000000000000000002",
+  org3: "0000000000000000000000000000000000000000000000000000000000000003",
+  orgEd25519: "3333333333333333333333333333333333333333333333333333333333333333",
+  person: "1111111111111111111111111111111111111111111111111111111111111111",
+  personSecp256k1: "000000000000000000000000000000000000000000000000000000000000000a",
+  agent1: "2121212121212121212121212121212121212121212121212121212121212121",
+  agent2: "2222222222222222222222222222222222222222222222222222222222222222",
+  agent3: "2323232323232323232323232323232323232323232323232323232323232323",
+  intruder: "9999999999999999999999999999999999999999999999999999999999999999",
+} as const;
 
-const USER_PRIV_HEX =
-  "1111111111111111111111111111111111111111111111111111111111111111";
+type SeedName = keyof typeof SEEDS;
 
-// ─── derived pubkeys ──────────────────────────────────────────────────
+const ALGS: Record<SeedName, KeyAlg> = {
+  org: "ecdsa-secp256k1-sha256",
+  org2: "ecdsa-secp256k1-sha256",
+  org3: "ecdsa-secp256k1-sha256",
+  orgEd25519: "ed25519",
+  person: "ed25519",
+  personSecp256k1: "ecdsa-secp256k1-sha256",
+  agent1: "ed25519",
+  agent2: "ed25519",
+  agent3: "ed25519",
+  intruder: "ed25519",
+};
 
-const orgPriv = hexToBytes(ORG_PRIV_HEX);
-const org2Priv = hexToBytes(ORG_2_PRIV_HEX);
-const org3Priv = hexToBytes(ORG_3_PRIV_HEX);
-const userPriv = hexToBytes(USER_PRIV_HEX);
+const key = (name: SeedName): KeyPair => keyPair(ALGS[name], hexToBytes(SEEDS[name]));
+const keyInput = (name: SeedName) => ({ alg: ALGS[name], priv_hex: SEEDS[name] });
 
-const orgPubHex = bytesToHex(ecdsaPublicKey(orgPriv));
-const org2PubHex = bytesToHex(ecdsaPublicKey(org2Priv));
-const org3PubHex = bytesToHex(ecdsaPublicKey(org3Priv));
-const userPubHex = bytesToHex(ed25519PublicKey(userPriv));
+// ─── fixed times (verified at NOW: after every iat, before every exp) ─
 
-// ─── shared timestamps (fixed → reproducible) ─────────────────────────
+const NOW = "2026-05-14T10:00:01Z";
 
-const UA_IAT = "2026-05-14T09:00:00Z";
-const UA_EXP = "2026-06-14T09:00:00Z";
-const INV_IAT = "2026-05-14T10:00:00Z";
-const INV_EXP = "2026-05-14T10:10:00Z";
-const ATT1_EXP = "2026-05-14T10:02:00Z";
-const ATT2_EXP = "2026-05-14T10:01:30Z";
-
-// ─── shared base objects (used by multiple fixtures) ──────────────────
-
-function baseUserAuthorization(): UserAuthorizationUnsigned {
+function rootCaveats(over: Partial<Caveats> = {}): Caveats {
   return {
+    run_id: "ua_01h8alicegrant000000000000",
     user_id: "u_alice",
-    user_pubkey: { alg: "ed25519", key: userPubHex },
-    // Phase 11: agents lifted out of the (deleted) `permissions`
-    // wrapper. No singular `realm` grant — multi-swarm scoping is
-    // encoded in `budget.realm_budgets` when needed.
-    agents: ["coder", "browser", "web-search", "repair-agent"],
-    iat: UA_IAT,
-    exp: UA_EXP,
+    agents: ["coder", "repair-agent"],
+    iat: "2026-05-14T09:00:00Z",
+    exp: "2026-06-14T09:00:00Z",
     nonce: "9f4e1c8b2a3d4e5f6a7b8c9d0e1f2a3b",
+    ...over,
   };
 }
 
-function baseInvocation(): InvocationUnsigned {
+function agentCaveats(over: Partial<Caveats> = {}): Caveats {
   return {
-    // Phase 11: no `realm` field. Single-swarm deployments need no
-    // realm scoping; multi-swarm scoping rides on `budget.realm_budgets`.
-    agents: ["coder"],
     run_id: "r_01h8alpharootinvocation00",
-    max_cost_usd: 5.0,
+    agent: "coder",
+    max_cost_usd: 5,
     max_steps: 100,
-    iat: INV_IAT,
-    exp: INV_EXP,
+    iat: "2026-05-14T10:00:00Z",
+    exp: "2026-05-14T10:10:00Z",
     nonce: "7c2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c",
+    ...over,
   };
 }
 
-// ─── fixture writers ──────────────────────────────────────────────────
+const CHILD: Caveats = {
+  run_id: "r_01h8alphachildlevel1run00",
+  agent: "web-search",
+  max_cost_usd: 2,
+  max_steps: 40,
+  iat: "2026-05-14T10:00:00Z",
+  exp: "2026-05-14T10:02:00Z",
+  nonce: "1e8d2c3b4a5f6e7d8c9b0a1f2e3d4c5b",
+};
 
-interface FixtureExpected {
-  ua_signing_bytes_hex: string;
-  inv_signing_bytes_hex: string;
-  ua_canonical_json: string;
-  inv_canonical_json: string;
-  macaroon_canonical_json: string;
-  macaroon_b64url: string;
-  attenuation_hmac_inputs: Array<{
-    prev_sig_hex: string;
-    caveats_canonical_json: string;
-    hmac_input_hex: string;
-    hmac_output_hex: string;
-  }>;
-  claims: {
-    org_id: string;
-    user_id: string;
-    agent_name: string;
-    run_id: string;
-    effective_caveats: {
-      agents: string[];
-      max_cost_usd: number;
-      max_steps: number;
-      budget: Budget | null;
-      exp: string;
-    };
-    ua_nonce: string;
-    ua_budget: Budget | null;
-    permitted_realms: string[] | null;
-    nonces: string[];
-    iat: string;
-  };
-  verify_result: "ok";
+const GRANDCHILD: Caveats = {
+  run_id: "r_01h8alphagrandchild2run00",
+  agent: "browser",
+  max_cost_usd: 0.5,
+  max_steps: 10,
+  iat: "2026-05-14T10:00:00Z",
+  exp: "2026-05-14T10:01:30Z",
+  nonce: "2f9e3d4c5b6a7f8e9d0c1b2a3f4e5d6c",
+};
+
+// ─── one fixture ──────────────────────────────────────────────────────
+
+interface OrgSpec {
+  /** Single key, or multisig: which policy keys exist and which sign. */
+  keys: SeedName[];
+  threshold?: number;
+  signers?: number[];
 }
 
-function buildMacaroon(
-  orgId: string,
-  ua: UserAuthorization,
-  inv: Invocation,
-  atts: Attenuation[],
-): Macaroon {
-  return {
-    v: 1,
+interface FixtureSpec {
+  file: string;
+  description: string;
+  org: OrgSpec;
+  root: Caveats;
+  holder: SeedName;
+  /** Later blocks: each one's caveats and the key it names. */
+  blocks: Array<{ caveats: Caveats; next: SeedName }>;
+}
+
+function policyOf(org: OrgSpec): Policy {
+  if (org.keys.length === 1) return { type: "single", key: key(org.keys[0]!).pub };
+  return { type: "multisig", threshold: org.threshold!, keys: org.keys.map((k) => key(k).pub) };
+}
+
+function rootBlock(orgId: string, org: OrgSpec, caveats: Caveats, holder: SeedName): Block {
+  if (org.keys.length === 1) {
+    const k = key(org.keys[0]!);
+    return signRoot(orgId, caveats, key(holder).pub, k);
+  }
+  return signRootMultisig(
+    orgId,
+    caveats,
+    key(holder).pub,
+    org.signers!.map((i) => ({ ...key(org.keys[i]!), key_index: i })),
+  );
+}
+
+function build(spec: FixtureSpec) {
+  const orgId = "org_acme";
+  const policy = policyOf(spec.org);
+  let token: Token = {
+    v: 2,
     org_id: orgId,
-    user_authorization: ua,
-    invocation: inv,
-    attenuations: atts,
+    blocks: [rootBlock(orgId, spec.org, spec.root, spec.holder)],
+    proof: SEEDS[spec.holder],
   };
-}
+  for (const b of spec.blocks) token = attenuate(token, b.caveats, key(b.next));
 
-function computeExpected(
-  unsignedUa: UserAuthorizationUnsigned,
-  signedUa: UserAuthorization,
-  unsignedInv: InvocationUnsigned,
-  signedInv: Invocation,
-  atts: Attenuation[],
-  macaroon: Macaroon,
-): FixtureExpected {
-  const uaMsg = signingBytes(unsignedUa as Record<string, unknown>, "org_sig");
-  const invMsg = signingBytes(unsignedInv as Record<string, unknown>, "user_sig");
+  const now = new Date(NOW);
+  const claims: Claims = verify(token, policy, now);
 
-  const attHmacInputs: FixtureExpected["attenuation_hmac_inputs"] = [];
-  let prevSig = invocationSigBytes(signedInv);
-  for (const att of atts) {
-    const caveatsCanonical = jcs(att.caveats as unknown as Record<string, unknown>);
-    const hmacInput = utf8Bytes(caveatsCanonical);
-    const hmacOutput = computeAttenuationHmac(prevSig, att.caveats);
-    attHmacInputs.push({
-      prev_sig_hex: bytesToHex(prevSig),
-      caveats_canonical_json: caveatsCanonical,
-      hmac_input_hex: bytesToHex(hmacInput),
-      hmac_output_hex: bytesToHex(hmacOutput),
-    });
-    prevSig = hexToBytes(att.hmac);
-  }
-
-  // Build claims by replaying narrowing locally (mirror of the
-  // verifier). Phase 11 effective_caveats carries the propagated
-  // Budget block; permitted_realms is the sorted keys of the
-  // effective budget's realm_budgets, or null. Inherit the UA's
-  // budget when the invocation omits its own ("Mixed mode" rule).
-  let effectiveBudget: Budget | null =
-    signedInv.budget ?? signedUa.budget ?? null;
-  let effective: FixtureExpected["claims"]["effective_caveats"] = {
-    agents: [...signedInv.agents],
-    max_cost_usd: signedInv.max_cost_usd,
-    max_steps: signedInv.max_steps,
-    budget: effectiveBudget,
-    exp: signedInv.exp,
-  };
-  let runId = signedInv.run_id;
-  const attNonces: string[] = [];
-  for (const att of atts) {
-    effectiveBudget = att.caveats.budget ?? effectiveBudget;
-    effective = {
-      agents: att.caveats.agents,
-      max_cost_usd: att.caveats.max_cost_usd,
-      max_steps: att.caveats.max_steps,
-      budget: effectiveBudget,
-      exp: att.caveats.exp,
+  const blocks = token.blocks.map((b, i) => {
+    const prev = i === 0 ? null : token.blocks[i - 1]!;
+    return {
+      prev_hex: prev ? blockHash(prev) : "",
+      signing_bytes_hex: bytesToHex(blockSigningBytes(orgId, prev, b.caveats, b.next_key)),
+      block_canonical_json: jcs(b),
     };
-    runId = att.caveats.run_id;
-    attNonces.push(att.caveats.nonce);
-  }
-  const agentName = effective.agents[effective.agents.length - 1] ?? "";
-  const permittedRealms = effectiveBudget?.realm_budgets
-    ? Object.keys(effectiveBudget.realm_budgets).sort()
-    : null;
-
-  const macaroonCanonical = jcs(macaroon as unknown as Record<string, unknown>);
-  const macaroonB64 = bytesToBase64url(utf8Bytes(macaroonCanonical));
+  });
 
   return {
-    ua_signing_bytes_hex: bytesToHex(uaMsg),
-    inv_signing_bytes_hex: bytesToHex(invMsg),
-    ua_canonical_json: jcs(stripField(signedUa, "org_sig")),
-    inv_canonical_json: jcs(stripField(signedInv, "user_sig")),
-    macaroon_canonical_json: macaroonCanonical,
-    macaroon_b64url: macaroonB64,
-    attenuation_hmac_inputs: attHmacInputs,
-    claims: {
-      org_id: macaroon.org_id,
-      user_id: signedUa.user_id,
-      agent_name: agentName,
-      run_id: runId,
-      effective_caveats: effective,
-      ua_nonce: signedUa.nonce,
-      ua_budget: signedUa.budget ?? null,
-      permitted_realms: permittedRealms,
-      nonces: [signedUa.nonce, signedInv.nonce, ...attNonces],
-      iat: signedInv.iat,
+    description: spec.description,
+    inputs: {
+      org_id: orgId,
+      policy,
+      org_keys: spec.org.keys.map(keyInput),
+      ...(spec.org.signers ? { participating_signers: spec.org.signers } : {}),
+      root: { caveats: spec.root, holder: keyInput(spec.holder) },
+      blocks: spec.blocks.map((b) => ({ caveats: b.caveats, next: keyInput(b.next) })),
+      now: NOW,
     },
-    verify_result: "ok",
+    expected: {
+      blocks,
+      token_canonical_json: jcs(token),
+      token_b64url: encodeToken(token),
+      claims,
+      tampered: tamperedTokens(spec, token, policy),
+    },
   };
 }
 
-function stripField(
-  obj: Record<string, unknown>,
-  field: string,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const k of Object.keys(obj)) if (k !== field) out[k] = obj[k];
+/**
+ * Tokens that must NOT verify, each with the code it fails with. The
+ * point of v2: a holder cannot shorten its chain, reuse a block under a
+ * different root, or edit a signed block.
+ */
+function tamperedTokens(spec: FixtureSpec, token: Token, policy: Policy) {
+  const out: Array<{ case: string; token_b64url: string; code: string }> = [];
+  const add = (name: string, t: Token) => out.push({ case: name, token_b64url: encodeToken(t), code: codeOf(t, policy) });
+
+  // Every truncation, keeping the proof the holder has.
+  for (let keep = token.blocks.length - 1; keep >= 1; keep--) {
+    add(`drop the last ${token.blocks.length - keep} block(s)`, { ...token, blocks: token.blocks.slice(0, keep) });
+  }
+  // A proof that is some other key.
+  add("proof from another key", { ...token, proof: SEEDS.intruder });
+  // Block 0 edited after signing.
+  add("block 0's caveats edited", {
+    ...token,
+    blocks: [{ ...token.blocks[0]!, caveats: { ...token.blocks[0]!.caveats, exp: "2099-01-01T00:00:00Z" } }, ...token.blocks.slice(1)],
+  });
+  if (token.blocks.length > 1) {
+    // A later block edited after signing.
+    const last = token.blocks.length - 1;
+    add(`block ${last}'s caveats edited`, {
+      ...token,
+      blocks: token.blocks.map((b, i) => (i === last ? { ...b, caveats: { ...b.caveats, max_cost_usd: 1000 } } : b)),
+    });
+    // Block 1 moved under another block 0 the org signed for the same holder.
+    const otherRoot = rootBlock(token.org_id, spec.org, { ...spec.root, nonce: "00000000000000000000000000000000" }, spec.holder);
+    add("block 1 moved under another block 0", { ...token, blocks: [otherRoot, ...token.blocks.slice(1)] });
+  }
+  // A properly signed next block naming an agent block 0 does not allow.
+  if (spec.root.agents && token.blocks.length === 1) {
+    add("next block names an agent outside agents", attenuate(token, agentCaveats({ agent: "intruder" }), key("intruder")));
+  }
   return out;
 }
 
-// ─── fixtures ─────────────────────────────────────────────────────────
-
-function makeFixture01Simple() {
-  const ua = baseUserAuthorization();
-  const inv = baseInvocation();
-  const signedUa = signUserAuthorizationSingle(ua, orgPriv);
-  const signedInv = signInvocation(inv, userPriv);
-  const macaroon = buildMacaroon("org_acme", signedUa, signedInv, []);
-  return {
-    description:
-      "single-key org, custodial phase 1: one user_authorization, one invocation, zero attenuations. Single-swarm shape — no realm fields anywhere.",
-    inputs: {
-      org_id: "org_acme",
-      org_priv_hex: ORG_PRIV_HEX,
-      user_priv_hex: USER_PRIV_HEX,
-      policy: {
-        type: "single" as const,
-        key: { alg: "ecdsa-secp256k1-sha256" as const, key: orgPubHex },
-      },
-      ua_unsigned: ua,
-      inv_unsigned: inv,
-      atts_unsigned: [] as AttenuationCaveats[],
-    },
-    expected: computeExpected(ua, signedUa, inv, signedInv, [], macaroon),
-  };
+function codeOf(t: Token, policy: Policy): string {
+  try {
+    verify(t, policy, new Date(NOW));
+  } catch (err) {
+    if (err instanceof VerifyError) return err.code;
+    throw err;
+  }
+  throw new Error("a tampered token verified");
 }
 
-function makeFixture02OneAttenuation() {
-  const ua = baseUserAuthorization();
-  const inv = baseInvocation();
-  const signedUa = signUserAuthorizationSingle(ua, orgPriv);
-  const signedInv = signInvocation(inv, userPriv);
+// ─── the fixtures ─────────────────────────────────────────────────────
 
-  const childCaveats: AttenuationCaveats = {
-    agents: ["coder", "web-search"],
-    max_cost_usd: 2.0,
-    max_steps: 40,
-    run_id: "r_01h8alphachildlevel1run00",
-    exp: ATT1_EXP,
-    nonce: "1e8d2c3b4a5f6e7d8c9b0a1f2e3d4c5b",
-  };
-  const att1 = attenuate(invocationSigBytes(signedInv), childCaveats);
+const SINGLE: OrgSpec = { keys: ["org"] };
 
-  const macaroon = buildMacaroon("org_acme", signedUa, signedInv, [att1]);
-  return {
-    description:
-      "single-key org with one sub-agent attenuation narrowing budget and adding a web-search agent (lineage extension)",
-    inputs: {
-      org_id: "org_acme",
-      org_priv_hex: ORG_PRIV_HEX,
-      user_priv_hex: USER_PRIV_HEX,
-      policy: {
-        type: "single" as const,
-        key: { alg: "ecdsa-secp256k1-sha256" as const, key: orgPubHex },
-      },
-      ua_unsigned: ua,
-      inv_unsigned: inv,
-      atts_unsigned: [childCaveats],
-    },
-    expected: computeExpected(ua, signedUa, inv, signedInv, [att1], macaroon),
-  };
-}
-
-function makeFixture03TwoAttenuations() {
-  const ua = baseUserAuthorization();
-  const inv = baseInvocation();
-  const signedUa = signUserAuthorizationSingle(ua, orgPriv);
-  const signedInv = signInvocation(inv, userPriv);
-
-  const childCaveats: AttenuationCaveats = {
-    agents: ["coder", "web-search"],
-    max_cost_usd: 2.0,
-    max_steps: 40,
-    run_id: "r_01h8alphachildlevel1run00",
-    exp: ATT1_EXP,
-    nonce: "1e8d2c3b4a5f6e7d8c9b0a1f2e3d4c5b",
-  };
-  const att1 = attenuate(invocationSigBytes(signedInv), childCaveats);
-
-  const grandchildCaveats: AttenuationCaveats = {
-    agents: ["coder", "web-search", "browser"],
-    max_cost_usd: 0.5,
-    max_steps: 10,
-    run_id: "r_01h8alphagrandchild2run00",
-    exp: ATT2_EXP,
-    nonce: "2f9e3d4c5b6a7f8e9d0c1b2a3f4e5d6c",
-  };
-  const att2 = attenuate(hexToBytes(att1.hmac), grandchildCaveats);
-
-  const macaroon = buildMacaroon(
-    "org_acme",
-    signedUa,
-    signedInv,
-    [att1, att2],
-  );
-  return {
-    description:
-      "two-deep attenuation chain: invocation → child (coder+web-search) → grandchild (+browser, smaller budget)",
-    inputs: {
-      org_id: "org_acme",
-      org_priv_hex: ORG_PRIV_HEX,
-      user_priv_hex: USER_PRIV_HEX,
-      policy: {
-        type: "single" as const,
-        key: { alg: "ecdsa-secp256k1-sha256" as const, key: orgPubHex },
-      },
-      ua_unsigned: ua,
-      inv_unsigned: inv,
-      atts_unsigned: [childCaveats, grandchildCaveats],
-    },
-    expected: computeExpected(
-      ua,
-      signedUa,
-      inv,
-      signedInv,
-      [att1, att2],
-      macaroon,
-    ),
-  };
-}
-
-function makeFixture05BudgetEnvelope() {
-  // Cold-storage motivating flow: org leader signs a UA with a
-  // weekly cumulative cap + a per-invocation cap, then the
-  // employee's hot key signs invocations under it.
-  //
-  // - max_total_usd:          $1000 cumulative across all invocations
-  //                           under this UA (enforced by the adapter
-  //                           via Redis cost:ua:<nonce>; the pure
-  //                           verifier surfaces it on Claims).
-  // - max_per_invocation_usd: $25 per single invocation (enforced at
-  //                           signature time; pure field comparison).
-  //
-  // The invocation asks for $5 < $25 → verifies. The cumulative cap
-  // is not exercised by the verifier (no Redis here) but appears on
-  // Claims so adapters can plumb it into the hot path.
-  const ua: UserAuthorizationUnsigned = {
-    ...baseUserAuthorization(),
-    budget: {
-      max_total_usd: 1000.0,
-      max_per_invocation_usd: 25.0,
-    },
-    // Distinct nonce so cost:ua:<nonce> buckets don't collide with
-    // other fixtures in any downstream integration tests that load
-    // multiple fixtures into one Redis.
-    nonce: "ab1234567890abcdef1234567890abcd",
-  };
-  const inv: InvocationUnsigned = {
-    ...baseInvocation(),
-    run_id: "r_01h8budgetenveloperun0000",
-    max_cost_usd: 5.0, // within both per-invocation and total caps
-    nonce: "cd1234567890abcdef1234567890abcd",
-  };
-  const signedUa = signUserAuthorizationSingle(ua, orgPriv);
-  const signedInv = signInvocation(inv, userPriv);
-  const macaroon = buildMacaroon("org_acme", signedUa, signedInv, []);
-  return {
-    description:
-      "single-key org with a UA budget envelope (max_total_usd + max_per_invocation_usd); invocation within both caps verifies and Claims surfaces ua_nonce + ua_budget",
-    inputs: {
-      org_id: "org_acme",
-      org_priv_hex: ORG_PRIV_HEX,
-      user_priv_hex: USER_PRIV_HEX,
-      policy: {
-        type: "single" as const,
-        key: { alg: "ecdsa-secp256k1-sha256" as const, key: orgPubHex },
-      },
-      ua_unsigned: ua,
-      inv_unsigned: inv,
-      atts_unsigned: [] as AttenuationCaveats[],
-    },
-    expected: computeExpected(ua, signedUa, inv, signedInv, [], macaroon),
-  };
-}
-
-function makeFixture04Multisig() {
-  const ua = baseUserAuthorization();
-  const inv = baseInvocation();
-  // 2-of-3 multisig: keys 0, 1, 2; signers 0 and 2 participate.
-  const signedUa = signUserAuthorizationMultisig(ua, [
-    { key_index: 0, privKey: orgPriv },
-    { key_index: 2, privKey: org3Priv },
-  ]);
-  const signedInv = signInvocation(inv, userPriv);
-  const macaroon = buildMacaroon("org_multisig", signedUa, signedInv, []);
-  return {
-    description:
-      "2-of-3 multisig org policy, signers 0 and 2 participate, no attenuations",
-    inputs: {
-      org_id: "org_multisig",
-      org_privs_hex: {
-        "0": ORG_PRIV_HEX,
-        "1": ORG_2_PRIV_HEX,
-        "2": ORG_3_PRIV_HEX,
-      },
-      participating_signers: [0, 2],
-      user_priv_hex: USER_PRIV_HEX,
-      policy: {
-        type: "multisig" as const,
-        threshold: 2,
-        keys: [
-          { alg: "ecdsa-secp256k1-sha256" as const, key: orgPubHex },
-          { alg: "ecdsa-secp256k1-sha256" as const, key: org2PubHex },
-          { alg: "ecdsa-secp256k1-sha256" as const, key: org3PubHex },
-        ],
-      },
-      ua_unsigned: ua,
-      inv_unsigned: inv,
-      atts_unsigned: [] as AttenuationCaveats[],
-    },
-    expected: computeExpected(ua, signedUa, inv, signedInv, [], macaroon),
-  };
-}
-
-function makeFixture06MultiRealm() {
-  // Phase 11 multi-swarm scenario: the org signs a UA with per-realm
-  // caps for two swarms (w1, w2). The user's invocation narrows the
-  // realm_budgets to a subset with smaller caps for this run.
-  //
-  // The verifier checks budget narrowing at the UA→invocation
-  // boundary; the plugin (out of scope for the pure verifier) reads
-  // claims.permitted_realms to assert this swarm's realm_id is in
-  // the set, then enforces the per-realm cap against Redis.
-  const ua: UserAuthorizationUnsigned = {
-    ...baseUserAuthorization(),
-    budget: {
-      max_total_usd: 1000.0,
-      max_per_invocation_usd: 25.0,
-      realm_budgets: {
-        w1: { max_total_usd: 500.0 },
-        w2: { max_total_usd: 200.0 },
-      },
-    },
-    nonce: "f06e1d2c3b4a5968778899aabbccddee",
-  };
-  const inv: InvocationUnsigned = {
-    ...baseInvocation(),
-    run_id: "r_01h8multirealmrun000000000",
-    max_cost_usd: 5.0,
-    nonce: "f16e1d2c3b4a5968778899aabbccddee",
-    budget: {
-      // Narrowing per axis: child caps ≤ parent caps; both child
-      // realms exist in parent's set.
-      realm_budgets: {
-        w1: { max_total_usd: 5.0 },
-        w2: { max_total_usd: 2.0 },
-      },
-    },
-  };
-  const signedUa = signUserAuthorizationSingle(ua, orgPriv);
-  const signedInv = signInvocation(inv, userPriv);
-  const macaroon = buildMacaroon("org_acme", signedUa, signedInv, []);
-  return {
-    description:
-      "multi-realm UA + invocation: org grants per-realm caps {w1:$500, w2:$200}, invocation narrows to {w1:$5, w2:$2}; no attenuations",
-    inputs: {
-      org_id: "org_acme",
-      org_priv_hex: ORG_PRIV_HEX,
-      user_priv_hex: USER_PRIV_HEX,
-      policy: {
-        type: "single" as const,
-        key: { alg: "ecdsa-secp256k1-sha256" as const, key: orgPubHex },
-      },
-      ua_unsigned: ua,
-      inv_unsigned: inv,
-      atts_unsigned: [] as AttenuationCaveats[],
-    },
-    expected: computeExpected(ua, signedUa, inv, signedInv, [], macaroon),
-  };
-}
-
-function makeFixture07CrossRealmAttenuation() {
-  // Cross-realm sub-agent spawn: the parent invocation authorizes
-  // spend on w1+w2, then attenuates locally to delegate a
-  // sub-agent that should only spend on w2 with a smaller cap. No
-  // Hive round-trip on the spawn path; the verifier checks the
-  // HMAC chain + symmetric budget narrowing.
-  const ua: UserAuthorizationUnsigned = {
-    ...baseUserAuthorization(),
-    budget: {
-      max_total_usd: 1000.0,
-      max_per_invocation_usd: 25.0,
-      realm_budgets: {
-        w1: { max_total_usd: 500.0 },
-        w2: { max_total_usd: 200.0 },
-      },
-    },
-    nonce: "07e1d2c3b4a596778899aabbccddee01",
-  };
-  const inv: InvocationUnsigned = {
-    ...baseInvocation(),
-    run_id: "r_01h8crossrealmparent00000",
-    max_cost_usd: 5.0,
-    nonce: "07e1d2c3b4a596778899aabbccddee02",
-    budget: {
-      realm_budgets: {
-        w1: { max_total_usd: 5.0 },
-        w2: { max_total_usd: 4.0 },
-      },
-    },
-  };
-  const signedUa = signUserAuthorizationSingle(ua, orgPriv);
-  const signedInv = signInvocation(inv, userPriv);
-
-  const subAgentCaveats: AttenuationCaveats = {
-    // Lineage extension: child agents ⊇ parent agents.
-    agents: ["coder", "web-search"],
-    max_cost_usd: 2.0,
-    max_steps: 40,
-    run_id: "r_01h8crossrealmsubchild00",
-    exp: ATT1_EXP,
-    nonce: "07e1d2c3b4a596778899aabbccddee03",
-    budget: {
-      // Narrow to a single realm with a smaller cap. Parent has w1+w2,
-      // child drops w1 (allowed) and tightens w2's cap.
-      realm_budgets: {
-        w2: { max_total_usd: 1.0 },
-      },
-    },
-  };
-  const subAgent = attenuate(invocationSigBytes(signedInv), subAgentCaveats);
-
-  const macaroon = buildMacaroon("org_acme", signedUa, signedInv, [subAgent]);
-  return {
-    description:
-      "cross-realm sub-agent attenuation: parent invocation allows w1+w2, child attenuates to w2 only with a smaller cap (HMAC-chained, no issuer round-trip)",
-    inputs: {
-      org_id: "org_acme",
-      org_priv_hex: ORG_PRIV_HEX,
-      user_priv_hex: USER_PRIV_HEX,
-      policy: {
-        type: "single" as const,
-        key: { alg: "ecdsa-secp256k1-sha256" as const, key: orgPubHex },
-      },
-      ua_unsigned: ua,
-      inv_unsigned: inv,
-      atts_unsigned: [subAgentCaveats],
-    },
-    expected: computeExpected(
-      ua,
-      signedUa,
-      inv,
-      signedInv,
-      [subAgent],
-      macaroon,
-    ),
-  };
-}
-
-// ─── keys.json (the deterministic seed set) ───────────────────────────
-
-function makeKeysJson() {
-  return {
-    description:
-      "Deterministic seed keys used by all fixtures. Reproducible: anyone running scripts/regenerate-fixtures.ts gets the same values. NOT secret — published in the repo.",
-    org_keys: [
+const SPECS: FixtureSpec[] = [
+  {
+    file: "01-person.json",
+    description: "block 0 only: the org hands the chain to a person's key; the proof is the person's private key",
+    org: SINGLE,
+    root: rootCaveats(),
+    holder: "person",
+    blocks: [],
+  },
+  {
+    file: "02-person-to-agent.json",
+    description: "the person hands an agent (coder) a run with a $5 / 100-step cap: a standing delegation",
+    org: SINGLE,
+    root: rootCaveats(),
+    holder: "person",
+    blocks: [{ caveats: agentCaveats(), next: "agent1" }],
+  },
+  {
+    file: "03-one-sub-agent.json",
+    description: "the agent spawns a sub-agent (web-search) with a $2 / 40-step cap and an earlier exp",
+    org: SINGLE,
+    root: rootCaveats(),
+    holder: "person",
+    blocks: [
+      { caveats: agentCaveats(), next: "agent1" },
+      { caveats: CHILD, next: "agent2" },
+    ],
+  },
+  {
+    file: "04-two-sub-agents.json",
+    description: "two sub-agent levels: coder → web-search → browser ($0.50 / 10 steps)",
+    org: SINGLE,
+    root: rootCaveats(),
+    holder: "person",
+    blocks: [
+      { caveats: agentCaveats(), next: "agent1" },
+      { caveats: CHILD, next: "agent2" },
+      { caveats: GRANDCHILD, next: "agent3" },
+    ],
+  },
+  {
+    file: "05-multisig-2of3.json",
+    description: "a 2-of-3 multisig org signs block 0 (signers 0 and 2); the person hands an agent a run",
+    org: { keys: ["org", "org2", "org3"], threshold: 2, signers: [0, 2] },
+    root: rootCaveats({ run_id: "ua_01h8multisiggrant000000000", nonce: "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a" }),
+    holder: "person",
+    blocks: [{ caveats: agentCaveats({ run_id: "r_01h8multisigrun00000000000", nonce: "6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b" }), next: "agent1" }],
+  },
+  {
+    file: "06-caps-on-root.json",
+    description: "block 0 caps everything under the person's grant at $1000 (v1's max_total_usd); the agent's run at $5",
+    org: SINGLE,
+    root: rootCaveats({ run_id: "ua_01h8budgetgrant00000000000", max_cost_usd: 1000, nonce: "ab1234567890abcdef1234567890abcd" }),
+    holder: "person",
+    blocks: [{ caveats: agentCaveats({ run_id: "r_01h8budgetenveloperun0000", nonce: "cd1234567890abcdef1234567890abcd" }), next: "agent1" }],
+  },
+  {
+    file: "07-multi-realm.json",
+    description: "block 0 permits realms w1 ($50) and w2 ($30); the agent's run narrows to w1 at $10",
+    org: SINGLE,
+    root: rootCaveats({
+      run_id: "ua_01h8multirealmgrant0000000",
+      realms: { w1: { max_cost_usd: 50 }, w2: { max_cost_usd: 30 } },
+      nonce: "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+    }),
+    holder: "person",
+    blocks: [{
+      caveats: agentCaveats({ run_id: "r_01h8multirealmrun000000000", realms: { w1: { max_cost_usd: 10 } }, nonce: "e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2" }),
+      next: "agent1",
+    }],
+  },
+  {
+    file: "08-cross-realm-sub-agent.json",
+    description: "the agent may spend on w1 and w2; it spawns a sub-agent for w2 only, at $1",
+    org: SINGLE,
+    root: rootCaveats({ run_id: "ua_01h8crossrealmgrant0000000", realms: { w1: {}, w2: {} }, nonce: "f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1" }),
+    holder: "person",
+    blocks: [
+      { caveats: agentCaveats({ run_id: "r_01h8crossrealmrun000000000", nonce: "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2" }), next: "agent1" },
       {
-        index: 0,
-        alg: "ecdsa-secp256k1-sha256",
-        priv_hex: ORG_PRIV_HEX,
-        pub_hex: orgPubHex,
-      },
-      {
-        index: 1,
-        alg: "ecdsa-secp256k1-sha256",
-        priv_hex: ORG_2_PRIV_HEX,
-        pub_hex: org2PubHex,
-      },
-      {
-        index: 2,
-        alg: "ecdsa-secp256k1-sha256",
-        priv_hex: ORG_3_PRIV_HEX,
-        pub_hex: org3PubHex,
+        caveats: { ...CHILD, run_id: "r_01h8crossrealmchild0000000", realms: { w2: { max_cost_usd: 1 } }, nonce: "f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3" },
+        next: "agent2",
       },
     ],
-    user_keys: [
-      {
-        index: 0,
-        alg: "ed25519",
-        priv_hex: USER_PRIV_HEX,
-        pub_hex: userPubHex,
-      },
-    ],
-  };
+  },
+  {
+    file: "09-mixed-algs.json",
+    description: "an Ed25519 org key and a secp256k1 person key: block 1 is signed with ECDSA, the agent's key is Ed25519",
+    org: { keys: ["orgEd25519"] },
+    root: rootCaveats({ run_id: "ua_01h8mixedalgsgrant00000000", nonce: "a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9" }),
+    holder: "personSecp256k1",
+    blocks: [{ caveats: agentCaveats({ run_id: "r_01h8mixedalgsrun0000000000", nonce: "b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9" }), next: "agent1" }],
+  },
+];
+
+// ─── write ────────────────────────────────────────────────────────────
+
+for (const f of readdirSync(FIXTURES_DIR)) {
+  if (/^\d{2}-.*\.json$/.test(f)) rmSync(join(FIXTURES_DIR, f));
 }
-
-// ─── main ─────────────────────────────────────────────────────────────
-
-function writeJson(path: string, value: unknown): void {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(value, null, 2) + "\n", "utf8");
-  process.stdout.write(`wrote ${path}\n`);
+for (const spec of SPECS) {
+  writeFileSync(join(FIXTURES_DIR, spec.file), JSON.stringify(build(spec), null, 2) + "\n");
+  console.log(`wrote ${spec.file}`);
 }
-
-function main() {
-  writeJson(join(FIXTURES_DIR, "keys.json"), makeKeysJson());
-  writeJson(join(FIXTURES_DIR, "01-simple.json"), makeFixture01Simple());
-  writeJson(join(FIXTURES_DIR, "02-one-attenuation.json"), makeFixture02OneAttenuation());
-  writeJson(join(FIXTURES_DIR, "03-two-attenuations.json"), makeFixture03TwoAttenuations());
-  writeJson(join(FIXTURES_DIR, "04-multisig-2of3.json"), makeFixture04Multisig());
-  writeJson(join(FIXTURES_DIR, "05-budget-envelope.json"), makeFixture05BudgetEnvelope());
-  writeJson(join(FIXTURES_DIR, "06-multi-realm.json"), makeFixture06MultiRealm());
-  writeJson(join(FIXTURES_DIR, "07-cross-realm-attenuation.json"), makeFixture07CrossRealmAttenuation());
-}
-
-main();
+writeFileSync(
+  join(FIXTURES_DIR, "keys.json"),
+  JSON.stringify(
+    {
+      description:
+        "Fixed seed keys used by every fixture. Reproducible: anyone running scripts/regenerate-fixtures.ts gets the same values. NOT secret: published in the repo.",
+      keys: Object.fromEntries(
+        (Object.keys(SEEDS) as SeedName[]).map((n) => [n, { alg: ALGS[n], priv_hex: SEEDS[n], pub_hex: key(n).pub.key }]),
+      ),
+    },
+    null,
+    2,
+  ) + "\n",
+);
+console.log("wrote keys.json");

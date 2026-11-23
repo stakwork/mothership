@@ -1,106 +1,84 @@
 /**
- * Layer-level signers. Phase 1 custodial mode: Hive holds both org
- * and user private keys and signs both layers itself. Phase 2+ moves
- * the user sign step to the user's device; the API stays the same
- * (the caller swaps which key it uses where).
+ * Building a chain. Block 0 is signed by the org; every later block by
+ * the key the block before it named. `attenuate` is the one operation
+ * an agent needs: it signs a block with the token's proof key, names a
+ * fresh key, and hands that key's private half on as the new proof.
  */
 
-import { bytesToHex, hexToBytes } from "./encoding.js";
-import { signingBytes } from "./jcs.js";
-import { ecdsaSign, ed25519Sign } from "./sigs.js";
-import type {
-  EcdsaSecp256k1Sig,
-  Ed25519Sig,
-  Invocation,
-  InvocationUnsigned,
-  MultisigV1Sig,
-  UserAuthorization,
-  UserAuthorizationUnsigned,
-} from "./types.js";
+import { sha256 } from "@noble/hashes/sha2";
+
+import { bytesToHex, hexToBytes, utf8Bytes } from "./encoding.js";
+import { jcs } from "./jcs.js";
+import { generateKey, signWith } from "./keys.js";
+import type { Block, Caveats, KeyAlg, KeyPair, MultisigV1Sig, PubKey, Token } from "./types.js";
 
 /**
- * Sign a `user_authorization` envelope with a single-key org private
- * key. Custodial phase 1 uses this; phase 3+ uses
- * `signUserAuthorizationMultisig` when the org adopts an m-of-n
- * policy.
- *
- * @param unsigned the layer without `org_sig`
- * @param orgPrivKey 32-byte secp256k1 private key
+ * The bytes a block's signature covers:
+ * `utf8(JCS({ org_id, prev, caveats, next_key }))`, where `prev` is ""
+ * for block 0 and `blockHash` of the block before otherwise.
  */
-export function signUserAuthorizationSingle(
-  unsigned: UserAuthorizationUnsigned,
-  orgPrivKey: Uint8Array,
-): UserAuthorization {
-  const msg = signingBytes(
-    unsigned as unknown as Record<string, unknown>,
-    "org_sig",
-  );
-  const sigBytes = ecdsaSign(orgPrivKey, msg);
-  const orgSig: EcdsaSecp256k1Sig = {
-    alg: "ecdsa-secp256k1-sha256",
-    sig: bytesToHex(sigBytes),
+export function blockSigningBytes(
+  orgId: string,
+  prev: Block | null,
+  caveats: Caveats,
+  nextKey: PubKey,
+): Uint8Array {
+  return utf8Bytes(jcs({ org_id: orgId, prev: prev ? blockHash(prev) : "", caveats, next_key: nextKey }));
+}
+
+/** `hex(sha256(utf8(JCS(block))))`: the whole block, signature included. */
+export function blockHash(block: Block): string {
+  return bytesToHex(sha256(utf8Bytes(jcs(block))));
+}
+
+/** One private key and its algorithm: what signs a block. */
+export interface Signer {
+  alg: KeyAlg;
+  priv: Uint8Array;
+}
+
+/**
+ * Block 0 under a single-key org: hands the chain to `holder`, usually a
+ * person's key. The holder's private half becomes the token's proof.
+ */
+export function signRoot(orgId: string, caveats: Caveats, holder: PubKey, org: Signer): Block {
+  const msg = blockSigningBytes(orgId, null, caveats, holder);
+  return { caveats, next_key: holder, sig: { alg: org.alg, sig: bytesToHex(signWith(org.alg, org.priv, msg)) } };
+}
+
+/**
+ * Block 0 under an m-of-n org. `signers` name their index in the
+ * policy's `keys`; the threshold is checked when the token is verified.
+ */
+export function signRootMultisig(
+  orgId: string,
+  caveats: Caveats,
+  holder: PubKey,
+  signers: Array<Signer & { key_index: number }>,
+): Block {
+  const msg = blockSigningBytes(orgId, null, caveats, holder);
+  const sigs = [...signers]
+    .sort((a, b) => a.key_index - b.key_index)
+    .map((s) => ({ key_index: s.key_index, alg: s.alg, sig: bytesToHex(signWith(s.alg, s.priv, msg)) }));
+  const sig: MultisigV1Sig = { alg: "multisig-v1", sigs };
+  return { caveats, next_key: holder, sig };
+}
+
+/**
+ * Append one block. Signs it with `token.proof` (the key the last block
+ * named), names `next` (a fresh Ed25519 key when omitted), and returns a
+ * new token whose proof is `next`'s private key. The input token is not
+ * changed, and nothing in the result lets its holder get it back.
+ */
+export function attenuate(token: Token, caveats: Caveats, next: KeyPair = generateKey()): Token {
+  const last = token.blocks[token.blocks.length - 1];
+  if (!last) throw new Error("attenuate: the token has no blocks");
+  const msg = blockSigningBytes(token.org_id, last, caveats, next.pub);
+  const sig = { alg: last.next_key.alg, sig: bytesToHex(signWith(last.next_key.alg, hexToBytes(token.proof), msg)) };
+  return {
+    v: 2,
+    org_id: token.org_id,
+    blocks: [...token.blocks, { caveats, next_key: next.pub, sig }],
+    proof: bytesToHex(next.priv),
   };
-  return { ...unsigned, org_sig: orgSig };
-}
-
-/**
- * Sign a `user_authorization` envelope under a multisig policy. Each
- * signer is identified by its `key_index` into the policy's `keys`
- * array. Returns the assembled `multisig-v1` envelope. Threshold
- * enforcement happens at verify time.
- *
- * @param unsigned the layer without `org_sig`
- * @param signers  array of { key_index, privKey } — one entry per
- *                 participating signer. Must be sorted by key_index
- *                 ascending so the canonical output is deterministic.
- */
-export function signUserAuthorizationMultisig(
-  unsigned: UserAuthorizationUnsigned,
-  signers: Array<{ key_index: number; privKey: Uint8Array }>,
-): UserAuthorization {
-  const msg = signingBytes(
-    unsigned as unknown as Record<string, unknown>,
-    "org_sig",
-  );
-  const sorted = [...signers].sort((a, b) => a.key_index - b.key_index);
-  const sigs = sorted.map(({ key_index, privKey }) => {
-    const sigBytes = ecdsaSign(privKey, msg);
-    return {
-      key_index,
-      alg: "ecdsa-secp256k1-sha256" as const,
-      sig: bytesToHex(sigBytes),
-    };
-  });
-  const orgSig: MultisigV1Sig = { alg: "multisig-v1", sigs };
-  return { ...unsigned, org_sig: orgSig };
-}
-
-/**
- * Sign an `invocation` envelope with the user's Ed25519 private key.
- *
- * @param unsigned the layer without `user_sig`
- * @param userPrivKey 32-byte Ed25519 private key (seed)
- */
-export function signInvocation(
-  unsigned: InvocationUnsigned,
-  userPrivKey: Uint8Array,
-): Invocation {
-  const msg = signingBytes(
-    unsigned as unknown as Record<string, unknown>,
-    "user_sig",
-  );
-  const sigBytes = ed25519Sign(userPrivKey, msg);
-  const userSig: Ed25519Sig = {
-    alg: "ed25519",
-    sig: bytesToHex(sigBytes),
-  };
-  return { ...unsigned, user_sig: userSig };
-}
-
-/**
- * Pull the raw signature bytes out of an invocation's `user_sig`,
- * for use as the HMAC key of the first attenuation.
- */
-export function invocationSigBytes(inv: Invocation): Uint8Array {
-  return hexToBytes(inv.user_sig.sig);
 }

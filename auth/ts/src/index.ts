@@ -1,36 +1,25 @@
 /**
- * `gatekey` — three-layer macaroon for cryptographic LLM governance.
- * Spec: `plans/phases/phase-4-macaroon-shape.md`.
+ * `gatekey` — macaroon v2 for cryptographic LLM governance: a chain of
+ * signed blocks plus a proof key. Spec:
+ * `plans/phases/phase-13-signed-block-chain.md`.
  */
 
 export type {
-  // signature envelopes
+  KeyAlg,
   SigAlg,
-  Ed25519Sig,
-  EcdsaSecp256k1Sig,
-  MultisigV1Sig,
-  OrgSig,
-  UserSig,
-  // pubkeys + policies
-  Ed25519PubKey,
-  EcdsaSecp256k1PubKey,
   PubKey,
+  SingleSig,
+  MultisigV1Sig,
+  Sig,
   SinglePolicy,
   MultisigPolicy,
   Policy,
-  // macaroon layers
-  RealmBudget,
-  Budget,
-  UserBudget,
-  UserAuthorizationUnsigned,
-  UserAuthorization,
-  InvocationUnsigned,
-  Invocation,
-  AttenuationCaveats,
-  Attenuation,
-  Macaroon,
-  // verifier output
-  EffectiveCaveats,
+  KeyPair,
+  RealmCap,
+  Caveats,
+  Block,
+  Token,
+  ChainLayer,
   Claims,
 } from "./types.js";
 
@@ -45,7 +34,7 @@ export {
 
 export { jcs, signingBytes } from "./jcs.js";
 
-// Crypto primitives (exposed for keygen / advanced use).
+// Curve primitives (the transparency log signs with ECDSA directly).
 export {
   ed25519Sign,
   ed25519Verify,
@@ -55,29 +44,21 @@ export {
   ecdsaPublicKey,
 } from "./sigs.js";
 
-// Layer signers (Hive macaroon issuer, custodial phase 1).
-export {
-  signUserAuthorizationSingle,
-  signUserAuthorizationMultisig,
-  signInvocation,
-  invocationSigBytes,
-} from "./sign.js";
+// Keys by algorithm.
+export { generateKey, keyPair, publicKeyBytes, signWith, verifyWith } from "./keys.js";
 
-// Attenuation (parent agents spawning sub-agents).
+// Building a chain: the org's block 0, then `attenuate` for every hop after.
 export {
-  computeAttenuationHmac,
+  signRoot,
+  signRootMultisig,
   attenuate,
-  attenuationSigBytes,
-} from "./attenuate.js";
+  blockSigningBytes,
+  blockHash,
+} from "./sign.js";
+export type { Signer } from "./sign.js";
 
-// Verifier (tests, debug, Hive sanity checks).
-export {
-  verify,
-  decodeMacaroon,
-  encodeMacaroon,
-  VerifyError,
-} from "./verify.js";
-
+// Verifier.
+export { verify, decodeToken, encodeToken, VerifyError } from "./verify.js";
 export type { VerifyErrorCode } from "./verify.js";
 
 // Transparency log (phase 12): Merkle verifiers + signed tree heads.
