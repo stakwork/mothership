@@ -5,6 +5,10 @@ custom plugin (Go, in-process) plus the wrapper, admin UI and macaroon
 auth that make up the LLM governance layer. Published as
 `ghcr.io/stakwork/mothership` (linux/amd64 + linux/arm64) on every GitHub
 release; see [`.github/workflows/publish.yml`](.github/workflows/publish.yml).
+A release's image is tagged with its version and `latest`. The `stable`
+tag is a channel: it moves only when someone runs
+[`.github/workflows/promote-image.yml`](.github/workflows/promote-image.yml),
+which copies a release's image to it by digest. A stadeum box follows it.
 
 Moved out of [stakgraph](https://github.com/stakwork/stakgraph) (its
 `gateway/` directory, history kept). The design docs under `plans/` predate
