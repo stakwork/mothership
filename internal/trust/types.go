@@ -64,7 +64,7 @@ const (
 // (org-signed), not the per-swarm trust registry.
 type Org struct {
 	OrgID                 string   `json:"org_id"`
-	Pubkey                string   `json:"pubkey"` // hex-encoded, 33-byte compressed secp256k1
+	Pubkey                string   `json:"pubkey"` // hex: 33-byte compressed secp256k1 or 32-byte Ed25519
 	IssuerURL             string   `json:"issuer_url"`
 	RevocationPollSeconds int      `json:"revocation_poll_seconds"`
 	GracePubkeys          []string `json:"grace_pubkeys,omitempty"` // previous-root keys during rotation grace
@@ -199,9 +199,11 @@ func (o *Org) validate() error {
 }
 
 // decodePubkey accepts either "0x"-prefixed or bare hex (case-
-// insensitive) and returns the raw 33-byte compressed secp256k1
-// pubkey. We require compression (33 bytes, leading 0x02/0x03) so
-// the on-disk form is unambiguous — uncompressed keys are rejected.
+// insensitive) and returns the raw key: a 33-byte compressed
+// secp256k1 pubkey, or a 32-byte Ed25519 one (phase 13: an org may
+// sign with either; the verifier tells them apart by length). We
+// require secp256k1 compression (33 bytes, leading 0x02/0x03) so the
+// on-disk form is unambiguous — uncompressed keys are rejected.
 func decodePubkey(s string) ([]byte, error) {
 	s = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(s), "0x"))
 	if s == "" {
@@ -211,8 +213,11 @@ func decodePubkey(s string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("not hex: %w", err)
 	}
+	if len(raw) == 32 {
+		return raw, nil // Ed25519
+	}
 	if len(raw) != 33 {
-		return nil, fmt.Errorf("must be 33-byte compressed secp256k1, got %d bytes", len(raw))
+		return nil, fmt.Errorf("must be a 33-byte compressed secp256k1 or 32-byte Ed25519 key, got %d bytes", len(raw))
 	}
 	// Verify the bytes actually parse as a curve point — guards
 	// against operators pasting random hex of the right length.
