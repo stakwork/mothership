@@ -250,11 +250,14 @@ async function chat(model: string, runId: string, opts: { stream?: boolean; cap?
   return { status: res.status, ms, body, usage };
 }
 
-// The accumulator writes on a goroutine: wait for the call's step.
+// The accumulator writes on a goroutine: wait for the call's step. The
+// gateway keys a run under its grant's id, and mint-macaroon.ts names
+// block 0 ua_<run_id>.
 async function runState(runId: string): Promise<{ cost_usd: number; steps: number }> {
   const deadline = Date.now() + 5_000;
+  const gatewayRunId = encodeURIComponent(`ua_${runId}:${runId}`);
   for (;;) {
-    const r = await plugin("GET", `/_plugin/runs/${runId}/state`);
+    const r = await plugin("GET", `/_plugin/runs/${gatewayRunId}/state`);
     if (r.status === 200 && r.json.steps >= 1) return r.json;
     if (Date.now() > deadline) return r.json ?? { cost_usd: NaN, steps: 0 };
     await new Promise((res) => setTimeout(res, 100));

@@ -20,6 +20,11 @@ import (
 	"time"
 )
 
+// MaxBlocks is the longest chain a verifier accepts: block 0 plus 15
+// hops. Each block costs a signature check and, at the gateway, its own
+// Redis keys, so an unbounded chain lets one request create thousands.
+const MaxBlocks = 16
+
 // Verify checks a base64url token (as carried in x-macaroon) against
 // one org's policy.
 func Verify(tokenB64 string, policy Policy, now time.Time) (*Claims, error) {
@@ -286,6 +291,9 @@ func parseToken(raw []byte) (Token, *VerifyError) {
 	var blocks []json.RawMessage
 	if json.Unmarshal(top["blocks"], &blocks) != nil || len(blocks) == 0 {
 		return t, malformed("blocks must be a non-empty array")
+	}
+	if len(blocks) > MaxBlocks {
+		return t, malformed("too many blocks: %d (at most %d)", len(blocks), MaxBlocks)
 	}
 	for i, rb := range blocks {
 		b, err := parseBlock(rb, i)

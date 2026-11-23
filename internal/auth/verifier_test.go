@@ -225,6 +225,54 @@ func TestVerify_Ed25519OrgKey(t *testing.T) {
 	}
 }
 
+// Every later block's run id is keyed under the grant's, so no holder
+// can name a run outside its own grant.
+func TestVerify_ScopesRunIDsToTheGrant(t *testing.T) {
+	reg := newTestRegistry(t)
+	now := time.Now()
+	opts := defaultMacaroonOptions(now)
+	sameAsGrant := appendBlock(t, buildMacaroon(t, opts), macaroon.Caveats{
+		RunID: opts.grantRunID,
+		IAT:   now.UTC().Format(time.RFC3339),
+		Exp:   now.Add(time.Minute).UTC().Format(time.RFC3339),
+		Nonce: "cccc000000000000000000000000cccc",
+	})
+	claims, err := Verify(sameAsGrant, reg, now)
+	if err != nil {
+		t.Fatalf("verify: %+v", err)
+	}
+	want := []string{opts.grantRunID, opts.grantRunID + ":" + opts.runID, opts.grantRunID}
+	for i, l := range claims.Chain {
+		if l.RunID != want[i] {
+			t.Errorf("chain[%d].RunID = %q, want %q", i, l.RunID, want[i])
+		}
+	}
+	if claims.RunID != opts.grantRunID {
+		t.Errorf("RunID = %q, want the last block's", claims.RunID)
+	}
+
+	claims, err = Verify(buildMacaroon(t, opts), reg, now)
+	if err != nil {
+		t.Fatalf("verify: %+v", err)
+	}
+	if claims.RunID != opts.scopedRunID() {
+		t.Errorf("RunID = %q, want %q", claims.RunID, opts.scopedRunID())
+	}
+}
+
+// A grant id with the separator in it could be the prefix of another
+// grant's, so the gateway refuses it.
+func TestVerify_GrantRunIDWithSeparator_Malformed(t *testing.T) {
+	reg := newTestRegistry(t)
+	now := time.Now()
+	opts := defaultMacaroonOptions(now)
+	opts.grantRunID = "ua_bob:r_1"
+	_, err := Verify(buildMacaroon(t, opts), reg, now)
+	if err == nil || err.Code != string(macaroon.ErrMacaroonMalformed) || err.HTTPStatus != 401 {
+		t.Fatalf("want macaroon_malformed 401, got %+v", err)
+	}
+}
+
 // The v1 unwrap, through the adapter: a token with its last block
 // dropped keeps a proof that no longer matches, and is refused.
 func TestVerify_TruncatedTokenRefused(t *testing.T) {

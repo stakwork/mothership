@@ -177,6 +177,115 @@ func TestAccumulate_AgentBucket_OnlyWhenConfigured(t *testing.T) {
 	}
 }
 
+// Every agent in the lineage that has a budget is charged, so a
+// sub-agent's spend counts against its parent agent's budget.
+func TestAccumulate_AgentBucket_EveryLineageAgent(t *testing.T) {
+	mr := newMiniRedis(t)
+	claims := chainClaims([]string{"r_1"}, []string{"2026-05-14T11:00:00Z"})
+	claims.Lineage = []string{"strut-agent", "planner", "digest.fetch"}
+	claims.AgentName = "digest.fetch"
+	SetConfigForTest(Config{AgentBudgets: map[string]AgentBudget{
+		"strut-agent":  {CapUSD: 500, Window: "1d"},
+		"digest.fetch": {CapUSD: 5, Window: "1d"},
+	}})
+	t.Cleanup(func() { SetConfigForTest(Config{}) })
+
+	if err := accumulate(context.Background(), claims, 0.30, nil, testNow()); err != nil {
+		t.Fatal(err)
+	}
+	for _, agent := range []string{"strut-agent", "digest.fetch"} {
+		key := "bifrost:cost:agent:" + agent + ":2026-05-14"
+		if got := mr.HGet(key, "total"); got != "0.3" {
+			t.Errorf("%s total = %q, want 0.3", key, got)
+		}
+	}
+	if mr.Exists("bifrost:cost:agent:planner:2026-05-14") {
+		t.Error("an agent with no budget must not get a bucket")
+	}
+}
+
+// A write never shortens a run's TTL: a block that names the run with
+// a short exp must not expire its counter early (and so reset its cap).
+func TestAccumulate_RunTTLOnlyGrows(t *testing.T) {
+	mr := newMiniRedis(t)
+	keys := []string{"bifrost:cost:run:r_1", "bifrost:steps:run:r_1", "bifrost:meta:run:r_1"}
+	wantTTL := func(want time.Duration) {
+		t.Helper()
+		for _, k := range keys {
+			if got := mr.TTL(k); got != want {
+				t.Errorf("%s TTL = %s, want %s", k, got, want)
+			}
+		}
+	}
+
+	// r_1's own block: exp 8h out → 9h.
+	own := chainClaims([]string{"r_1"}, []string{"2026-05-14T18:05:00Z"})
+	if err := accumulate(context.Background(), own, 1, nil, testNow()); err != nil {
+		t.Fatal(err)
+	}
+	wantTTL(9 * time.Hour)
+
+	// Another chain names r_1 on a block that expires in a minute.
+	other := chainClaims([]string{"r_other", "r_1"}, []string{"2026-05-14T18:05:00Z", "2026-05-14T10:06:00Z"})
+	if err := accumulate(context.Background(), other, 1, nil, testNow()); err != nil {
+		t.Fatal(err)
+	}
+	wantTTL(9 * time.Hour)
+	if got := mr.HGet("bifrost:cost:run:r_1", "total"); got != "2" {
+		t.Errorf("cost:run:r_1 = %q, want 2", got)
+	}
+
+	// A later exp still lengthens it: exp 10h out → 11h.
+	later := chainClaims([]string{"r_1"}, []string{"2026-05-14T20:05:00Z"})
+	if err := accumulate(context.Background(), later, 1, nil, testNow()); err != nil {
+		t.Fatal(err)
+	}
+	wantTTL(11 * time.Hour)
+}
+
+// Another person's token that names Bob's grant as a run id is counted
+// under its own grant: Bob's spent cap, its TTL and its meta are not
+// touched.
+func TestAccumulate_AnotherGrantCannotNameThisOne(t *testing.T) {
+	reg := newTestRegistry(t)
+	mr := newMiniRedis(t)
+	now := time.Now().UTC()
+
+	mr.HSet("bifrost:cost:run:ua_bob", "total", "10")
+	mr.SetTTL("bifrost:cost:run:ua_bob", 168*time.Hour)
+	mr.HSet("bifrost:meta:run:ua_bob", "parent", "")
+	mr.SetTTL("bifrost:meta:run:ua_bob", 168*time.Hour)
+
+	opts := defaultMacaroonOptions(now)
+	opts.userID = "u_mallory"
+	opts.grantRunID = "ua_mallory"
+	opts.runID = "ua_bob"
+	opts.invExp = now.Add(time.Minute)
+	claims, vErr := Verify(buildMacaroon(t, opts), reg, now)
+	if vErr != nil {
+		t.Fatalf("verify: %+v", vErr)
+	}
+	if err := accumulate(context.Background(), claims, 0.0001, nil, now); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := mr.HGet("bifrost:cost:run:ua_bob", "total"); got != "10" {
+		t.Errorf("Bob's total = %q, want 10", got)
+	}
+	if got := mr.TTL("bifrost:cost:run:ua_bob"); got != 168*time.Hour {
+		t.Errorf("Bob's TTL = %s, want 168h", got)
+	}
+	if got := hgetall(mr, "bifrost:meta:run:ua_bob")["parent"]; got != "" {
+		t.Errorf("Bob's meta parent = %q, want none", got)
+	}
+	if got := mr.HGet("bifrost:cost:run:ua_mallory:ua_bob", "total"); got != "0.0001" {
+		t.Errorf("Mallory's own counter = %q, want 0.0001", got)
+	}
+	if mr.Exists("bifrost:steps:run:ua_bob") {
+		t.Error("a step was written to Bob's grant")
+	}
+}
+
 func TestAccumulate_ToolHistory_CappedAtTen(t *testing.T) {
 	mr := newMiniRedis(t)
 	claims := chainClaims([]string{"r_1"}, []string{"2026-05-14T11:00:00Z"})

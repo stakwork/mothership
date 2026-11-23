@@ -12,6 +12,7 @@ package auth
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -129,6 +130,39 @@ func defaultMacaroonOptions(now time.Time) macaroonOptions {
 		uaNonce:    "aaaa000000000000000000000000aaaa",
 		invNonce:   "bbbb000000000000000000000000bbbb",
 	}
+}
+
+// scopedRunID is block 1's run id as the gateway keys it: under the
+// grant's (scopeRunIDs).
+func (o macaroonOptions) scopedRunID() string {
+	return o.grantRunID + runScopeSep + o.runID
+}
+
+// appendBlock is what any holder of a token can do: sign one more
+// block with the proof key and hand on a fresh one.
+func appendBlock(t *testing.T, encoded string, c macaroon.Caveats) string {
+	t.Helper()
+	raw, err := macaroon.Base64urlToBytes(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tok macaroon.Token
+	if err := json.Unmarshal(raw, &tok); err != nil {
+		t.Fatal(err)
+	}
+	next, err := macaroon.GenerateKey(macaroon.AlgEd25519)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := macaroon.Attenuate(tok, c, next)
+	if err != nil {
+		t.Fatalf("append block: %v", err)
+	}
+	s, err := macaroon.EncodeToken(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
 }
 
 func buildMacaroon(t *testing.T, opts macaroonOptions) string {
