@@ -266,7 +266,7 @@ func TestApplyToLLMPre_EnforceMode_RunKilled402(t *testing.T) {
 
 	opts := defaultMacaroonOptions(time.Now())
 	encoded := buildMacaroon(t, opts)
-	mr.Set("bifrost:kill:"+opts.runID, "1")
+	mr.Set("bifrost:kill:"+opts.scopedRunID(), "1")
 
 	bctx := newBifrostCtx()
 	pluginctx.SetRawMacaroon(bctx, encoded)

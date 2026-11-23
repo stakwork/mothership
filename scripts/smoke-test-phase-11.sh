@@ -133,12 +133,13 @@ call_with_macaroon() {
 # verify_log_for <run_id>
 #
 # Returns the single "auth: verify ..." line for the given run_id,
-# or empty string if not found. We tail enough lines that consecutive
+# or empty string if not found. The gateway logs a run under its
+# grant's id (mint-macaroon.ts names block 0 ua_<run_id>). We tail enough lines that consecutive
 # test calls don't push earlier results out of the window.
 verify_log_for() {
   local run_id="$1"
   docker compose -f "$COMPOSE_FILE" logs --tail=500 bifrost 2>/dev/null \
-    | grep -E "auth: verify .* run_id=$run_id" \
+    | grep -E "auth: verify .* run_id=ua_$run_id:$run_id" \
     | tail -1
 }
 

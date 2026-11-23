@@ -112,6 +112,13 @@ new_run_id() {
   printf 'r_concat_%s_%s_%s' "$label" "$(date +%s)" "$RANDOM"
 }
 
+# gw_run_id <run_id>: the id the gateway counts and logs a minted run
+# under. It keys every later block's run_id under block 0's, and
+# mint-macaroon.ts names block 0 ua_<run_id>.
+gw_run_id() {
+  printf 'ua_%s:%s' "$1" "$1"
+}
+
 # mint_macaroon <run_id>
 #
 # Same shape as the enforcement smoke. Outputs the base64url macaroon
@@ -200,7 +207,7 @@ assert_verify_log_present() {
   local hit
   hit=$(docker compose -f "$REPO_ROOT/docker-compose.yml" \
         logs --tail=500 bifrost 2>/dev/null \
-    | grep -E "auth: verify .* run_id=$run_id" \
+    | grep -E "auth: verify .* run_id=$(gw_run_id "$run_id")" \
     | tail -1)
   if [ -n "$hit" ]; then
     printf '  [PASS] verify line present for %s\n' "$run_id"
@@ -373,8 +380,8 @@ for label in "Authorization:$AUTH_RUN_ID" \
              "two-header:$COMPAT_RUN_ID"; do
   name="${label%%:*}"
   rid="${label#*:}"
-  row=$(fetch_logs_row "$rid")
-  expect_eq "logs row [$name]" "$rid|u_alice|coder" "$row"
+  row=$(fetch_logs_row "$(gw_run_id "$rid")")
+  expect_eq "logs row [$name]" "$(gw_run_id "$rid")|u_alice|coder" "$row"
 done
 
 # --- summary ---------------------------------------------------------------

@@ -205,6 +205,58 @@ func TestCheckCaps_AgentBudgetZero_Blocks(t *testing.T) {
 	}
 }
 
+// An agent's budget covers its sub-agents: spend under any name below
+// it counts against it.
+func TestCheckCaps_AgentBudget_CoversTheLineage(t *testing.T) {
+	mr := newMiniRedis(t)
+	SetConfigForTest(Config{AgentBudgets: map[string]AgentBudget{
+		"coder": {CapUSD: 1, Window: "1d"},
+	}})
+	t.Cleanup(func() { SetConfigForTest(Config{}) })
+	today := time.Now().UTC().Format("2006-01-02")
+
+	c := capClaims()
+	c.Lineage = []string{"coder", "coder-2"}
+	c.AgentName = "coder-2"
+	if err := check(t, c, ""); err != nil {
+		t.Fatalf("nothing spent, got %+v", err)
+	}
+	mr.HSet("bifrost:cost:agent:coder:"+today, "total", "1.00")
+	err := check(t, c, "")
+	wantCode(t, err, "agent_cost_exceeded")
+	if want := "agent coder spent"; !contains(err.Message, want) {
+		t.Fatalf("message should name the budgeted agent: %q", err.Message)
+	}
+}
+
+// The permanent stop (cap_usd 0) holds through the real verifier when
+// the stopped agent appends a block under another name.
+func TestCheckCaps_AgentBudgetZero_BlocksAnAppendedBlock(t *testing.T) {
+	reg := newTestRegistry(t)
+	_ = newMiniRedis(t)
+	SetConfigForTest(Config{AgentBudgets: map[string]AgentBudget{
+		"coder": {CapUSD: 0},
+	}})
+	t.Cleanup(func() { SetConfigForTest(Config{}) })
+	now := time.Now().UTC()
+
+	evade := appendBlock(t, buildMacaroon(t, defaultMacaroonOptions(now)), macaroon.Caveats{
+		RunID: "r_evade",
+		Agent: "coder-2",
+		IAT:   now.Format(time.RFC3339),
+		Exp:   now.Add(time.Minute).Format(time.RFC3339),
+		Nonce: "cccc000000000000000000000000cccc",
+	})
+	claims, vErr := Verify(evade, reg, now)
+	if vErr != nil {
+		t.Fatalf("verify: %+v", vErr)
+	}
+	if got := claims.Lineage; len(got) != 2 || got[0] != "coder" || got[1] != "coder-2" {
+		t.Fatalf("lineage: %v", got)
+	}
+	wantCode(t, CheckCaps(context.Background(), claims, "", now), "agent_cost_exceeded")
+}
+
 func TestCheckCaps_ZeroCaveatCaps_MeanNoCap(t *testing.T) {
 	mr := newMiniRedis(t)
 	mr.HSet("bifrost:cost:run:r_solo", "total", "1000")
@@ -242,7 +294,7 @@ func TestCheckCaps_KeyNamespace(t *testing.T) {
 func overCapMacaroon(t *testing.T, mr interface{ HSet(string, ...string) }) string {
 	t.Helper()
 	opts := defaultMacaroonOptions(time.Now()) // $5 cap
-	mr.HSet("bifrost:cost:run:"+opts.runID, "total", "5")
+	mr.HSet("bifrost:cost:run:"+opts.scopedRunID(), "total", "5")
 	return buildMacaroon(t, opts)
 }
 

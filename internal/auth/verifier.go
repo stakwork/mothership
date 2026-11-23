@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	macaroon "github.com/stakwork/mothership/auth/go"
@@ -110,6 +111,9 @@ func Verify(macaroonB64 string, registry *trust.Registry, now time.Time) (*macar
 	for _, policy := range candidates {
 		claims, vErr := macaroon.VerifyJSON(raw, policy, now)
 		if vErr == nil {
+			if err := scopeRunIDs(claims); err != nil {
+				return nil, err
+			}
 			return claims, nil
 		}
 		var ve *macaroon.VerifyError
@@ -143,6 +147,45 @@ func Verify(macaroonB64 string, registry *trust.Registry, now time.Time) (*macar
 		Message:    lastVerifyErr.Detail,
 		Cause:      lastVerifyErr,
 	}
+}
+
+// runScopeSep joins the grant's run_id and a later block's.
+const runScopeSep = ":"
+
+// scopeRunIDs puts every later block's run id under block 0's: a block
+// that names run "r1" under the grant "ua_x" is counted, capped, killed
+// and logged as "ua_x:r1". Everything downstream reads the run ids off
+// the claims, so this is the one place the gateway's run ids are made.
+//
+// Block 0 is the only block the org signs, so its run_id is the one
+// name a holder cannot choose. A later block's is any string the holder
+// likes: unscoped, it could name another person's grant or run and
+// write to those counters (add spend and steps, shorten the TTL so a
+// spent cap resets, rewrite the meta the operator UI shows).
+//
+// A later block that restates the grant's own run_id keeps it: that is
+// the grant's counter, which every block under the grant feeds anyway.
+// The grant's run_id must not contain the separator, or one grant's id
+// could be the prefix of another's.
+func scopeRunIDs(claims *macaroon.Claims) *AdapterError {
+	if len(claims.Chain) == 0 {
+		return nil
+	}
+	grant := claims.Chain[0].RunID
+	if strings.Contains(grant, runScopeSep) {
+		return &AdapterError{
+			Code:       string(macaroon.ErrMacaroonMalformed),
+			HTTPStatus: 401,
+			Message:    fmt.Sprintf("block 0's run_id must not contain %q", runScopeSep),
+		}
+	}
+	for i := 1; i < len(claims.Chain); i++ {
+		if id := claims.Chain[i].RunID; id != grant {
+			claims.Chain[i].RunID = grant + runScopeSep + id
+		}
+	}
+	claims.RunID = claims.Chain[len(claims.Chain)-1].RunID
+	return nil
 }
 
 // peekOrgID parses just enough of the wire-format macaroon to extract

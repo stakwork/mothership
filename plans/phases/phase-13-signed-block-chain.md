@@ -104,7 +104,7 @@ and to everything under it.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `run_id` | yes | The key this block's spend, steps, meta and kill switch go under (`cost:run:<run_id>` …). Block 0's is the person's grant; later blocks name a run. Two blocks may share one (strut's step links reuse the run's), and then they share one counter. |
+| `run_id` | yes | The key this block's spend, steps, meta and kill switch go under (`cost:run:<run_id>` …). Block 0's is the person's grant; later blocks name a run. Two blocks may share one (strut's step links reuse the run's), and then they share one counter. The gateway keys every later block's under block 0's (see "Gateway"), so a holder can only name runs inside its own grant. |
 | `nonce` | yes | 128-bit random hex. The revocation handle, as today. |
 | `iat` | yes | Issue time. Block 0's is the `revoke_user_before` axis. |
 | `exp` | yes | The block is invalid after this. |
@@ -123,6 +123,11 @@ leave it out for "no limit". The second rule makes every valid
 token's JSON exactly what the Go structs marshal to, so the Go
 verifier rebuilds the signed bytes from parsed structs and agrees
 with the TS signer byte for byte.
+
+A token holds at most 16 blocks (`MaxBlocks` in Go, `MAX_BLOCKS` in
+TS); a longer one is malformed. Each block costs a signature check
+and, at the gateway, its own Redis keys, and without the limit only
+the front end's header size bounds a chain.
 
 What is gone from v1: the separate `user_authorization`,
 `invocation` and `attenuations`; `user_pubkey` (it is block 0's
@@ -207,10 +212,24 @@ the chain.
 Block 0 becomes one more layer of the chain, so the person-level
 path folds into the per-layer loop:
 
+- **Run ids** (`verifier.go`, `scopeRunIDs`): a later block's
+  `run_id` is whatever its holder wrote, so the gateway keys it under
+  block 0's, the one `run_id` the org signs: a block that names `r1`
+  under the grant `ua_x` is counted, capped, killed and logged as
+  `ua_x:r1`. Unscoped, any holder could name another person's grant
+  or run and write to its counters (add spend and steps, shorten the
+  TTL so a spent cap resets, rewrite its meta). A later block that
+  restates the grant's own `run_id` keeps it. Block 0's `run_id` must
+  not contain `:` (`macaroon_malformed`), or one grant's id could be
+  the prefix of another's. The claims carry the scoped ids, so every
+  bullet below, the admin API and the logs use them.
 - **Accumulators** (`accumulator.go`): `cost:run` / `steps:run` /
   `meta:run` per distinct `run_id`, block 0 included. `cost:ua` is
   gone; a person's total is `cost:run:<block 0's run_id>`. In the
-  operator UI the grant shows as the root of the run tree.
+  operator UI the grant shows as the root of the run tree. A write
+  never shortens a run key's TTL (`EXPIRE NX`, then `EXPIRE GT`;
+  Redis 7): a block that names another run of the same grant with a
+  short `exp` cannot expire that run's counter early.
 - **Cap walk** (`capwalk.go`): per block, leaf first,
   `cost:run ≥ max_cost_usd` (`run_cost_exceeded`),
   `cost:run ≥ realms[realm].max_cost_usd` (`realm_budget_exceeded`),
@@ -218,6 +237,13 @@ path folds into the per-layer loop:
   `run_id` share its counter, and each one's caps apply (v1 skipped
   the inner one as a duplicate). The `ua_budget_exceeded` branch is
   gone.
+- **Agent budgets** (`capwalk.go`, `accumulator.go`): `agent_budgets`
+  are charged and checked for every agent in the lineage, as kills
+  are (v1 used only the innermost agent). An agent's budget, and a
+  `cap_usd` of 0 that stops it for good, cover its sub-agents, so
+  appending a block under another name does not get around either.
+  `cost:agent:<name>:<bucket>` therefore includes the spend of the
+  agent's sub-agents.
 - **Realm membership** (`enforcement.go`): the four cases of phase
   11, checked on every block that sets `realms`.
 - **Revocations** (`revocation.go`): unchanged, over `nonces`;
@@ -231,7 +257,8 @@ path folds into the per-layer loop:
   reads the `alg` from the key's length; the registry accepts 32-byte
   Ed25519 keys.
 
-Redis keys, the admin API and the hooks keep their shapes.
+Redis keys, the admin API and the hooks keep their shapes; the run
+ids in them are the scoped ones.
 
 ## `gatekey` 1.0.0 (`auth/ts`) and the Go package (`auth/go`)
 
@@ -304,12 +331,12 @@ a block moved under another root, an agent outside `agents`.
    goes with `cost:ua`. Default: rename. Stadeum's code matches on
    none of them; strut's only match is a test of v1 widening
    (`src/mothership.test.ts`), which its PR replaces.
-5. **Per-agent budgets.** `agent_budgets` still charge and cap only
-   the innermost agent, so a sub-agent under another name spends
-   outside its parent agent's windowed budget (as in v1). Default:
-   unchanged. Charging every agent in the lineage would close it, but
-   would change what the per-agent spend numbers mean (each would
-   include its sub-agents).
+5. **Per-agent budgets.** Settled: every agent in the lineage is
+   charged and checked (see "Gateway"). The first build left them on
+   the innermost agent only, which let any holder append a block
+   under another name and spend outside a budget or past a
+   `cap_usd: 0`, and meant a budget on `strut-agent` never applied,
+   since strut bills each call to the step's name.
 
 ## Work items
 

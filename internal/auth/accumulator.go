@@ -60,8 +60,9 @@ const toolHistoryLen = 10
 //     0 included) — killing or capping a parent must see descendant
 //     spend, and block 0's counter is the person's total under their
 //     grant (phase 13; v1 kept that in a separate cost:ua key).
-//   - HINCRBYFLOAT cost:agent:<agent>:<bucket> + EXPIRE, only when
-//     the leaf agent has a configured windowed budget.
+//   - HINCRBYFLOAT cost:agent:<agent>:<bucket> + EXPIRE, for every
+//     agent in the lineage that has a configured windowed budget: an
+//     agent's budget counts its sub-agents' spend too.
 //   - LPUSH/LTRIM tools:run:<leaf> + EXPIRE when the response
 //     contained tool calls.
 //   - HSET meta:run:<r> (caps, exp, parent link; agent + user on the
@@ -117,9 +118,9 @@ func WaitForAccumulatorsForTest() {
 //
 // Every command is individually idempotent on its own value
 // (HINCRBYFLOAT is commutative, LPUSH+LTRIM is bounded, EXPIRE is
-// set-not-add), so the pipeline needs no transaction — out-of-order
-// or partially-applied writes converge to the same state. See
-// phase-6 "Pipelining and atomicity".
+// set-not-add and a run's TTL only ever grows), so the pipeline needs
+// no transaction — out-of-order or partially-applied writes converge
+// to the same state. See phase-6 "Pipelining and atomicity".
 func accumulate(
 	ctx context.Context,
 	claims *macaroon.Claims,
@@ -138,7 +139,10 @@ func accumulate(
 	// axis (clamp(layer.exp - now + 1h, 1h, 7d)) — an ancestor's
 	// accumulator must outlive the short-lived leaf that wrote it.
 	// TTL refreshes on every write, so an actively-spending run
-	// keeps its keys alive for its whole lifetime.
+	// keeps its keys alive for its whole lifetime. A write never
+	// shortens it (keepAlive): a block that names another run of the
+	// same grant with a short exp must not expire that run's counter
+	// early and so reset its cap.
 	//
 	// The same pass stamps meta:run:<id> for each layer: caps, exp
 	// and the parent link (the previous distinct layer). Idempotent —
@@ -156,8 +160,8 @@ func accumulate(
 		metaKey := redisclient.Key(metaRunPrefix + layer.RunID)
 		pipe.HIncrByFloat(ctx, costKey, "total", costUSD)
 		pipe.HIncrBy(ctx, stepsKey, "total", 1)
-		pipe.Expire(ctx, costKey, ttl)
-		pipe.Expire(ctx, stepsKey, ttl)
+		keepAlive(ctx, pipe, costKey, ttl)
+		keepAlive(ctx, pipe, stepsKey, ttl)
 
 		meta := []any{
 			"max_cost_usd", layer.MaxCostUSD,
@@ -169,7 +173,7 @@ func accumulate(
 			meta = append(meta, "agent", claims.AgentName, "user", claims.UserID)
 		}
 		pipe.HSet(ctx, metaKey, meta...)
-		pipe.Expire(ctx, metaKey, ttl)
+		keepAlive(ctx, pipe, metaKey, ttl)
 		parent = layer.RunID
 	}
 
@@ -188,18 +192,26 @@ func accumulate(
 		pipe.Expire(ctx, userKey, runsUserTTL)
 	}
 
-	// Per-agent windowed bucket — only when the operator configured
-	// a budget for this agent. The bucket key is computed from THIS
-	// write's clock ("bucket by the time of the write" — see phase-6
-	// "Bucket boundary mid-call"), never carried over from PreHook.
-	if b, ok := GetConfig().AgentBudgets[claims.AgentName]; ok && b.CapUSD > 0 && b.Window != "" {
-		if w, err := duration.Parse(b.Window); err != nil {
-			pluginlog.Warnf("auth: accumulator agent=%s: unrecognized window %q", claims.AgentName, b.Window)
-		} else {
-			agentKey := redisclient.Key(costAgentPrefix + claims.AgentName + ":" + w.BucketKey(now))
-			pipe.HIncrByFloat(ctx, agentKey, "total", costUSD)
-			pipe.Expire(ctx, agentKey, w.TTL())
+	// Per-agent windowed buckets — one for every agent in the lineage
+	// the operator configured a budget for, so the cap walk can hold a
+	// sub-agent to its parent agent's budget. The bucket key is
+	// computed from THIS write's clock ("bucket by the time of the
+	// write" — see phase-6 "Bucket boundary mid-call"), never carried
+	// over from PreHook.
+	budgets := GetConfig().AgentBudgets
+	for _, name := range chainAgents(claims) {
+		b, ok := budgets[name]
+		if !ok || b.CapUSD <= 0 || b.Window == "" {
+			continue
 		}
+		w, err := duration.Parse(b.Window)
+		if err != nil {
+			pluginlog.Warnf("auth: accumulator agent=%s: unrecognized window %q", name, b.Window)
+			continue
+		}
+		agentKey := redisclient.Key(costAgentPrefix + name + ":" + w.BucketKey(now))
+		pipe.HIncrByFloat(ctx, agentKey, "total", costUSD)
+		pipe.Expire(ctx, agentKey, w.TTL())
 	}
 
 	// Tool-loop history on the leaf run only.
@@ -214,6 +226,15 @@ func accumulate(
 
 	_, err := pipe.Exec(ctx)
 	return err
+}
+
+// keepAlive gives key a TTL of ttl unless it already has a longer one.
+// EXPIRE GT alone would never set a TTL on a new key (no TTL counts as
+// infinite), so NX sets the first one and GT lengthens it after that.
+// Both options need Redis 7.
+func keepAlive(ctx context.Context, pipe redis.Pipeliner, key string, ttl time.Duration) {
+	pipe.ExpireNX(ctx, key, ttl)
+	pipe.ExpireGT(ctx, key, ttl)
 }
 
 // chainLayers returns the chain's distinct run layers outermost-first

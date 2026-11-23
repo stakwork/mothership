@@ -113,6 +113,13 @@ new_run_id() {
   printf 'r_enforce_%s_%s' "$(date +%s)" "$RANDOM"
 }
 
+# gw_run_id <run_id>: the id the gateway counts and logs a minted run
+# under. It keys every later block's run_id under block 0's, and
+# mint-macaroon.ts names block 0 ua_<run_id>.
+gw_run_id() {
+  printf 'ua_%s:%s' "$1" "$1"
+}
+
 # mint_macaroon <run_id> [realms_json]
 #
 # Calls mint-macaroon.ts and emits the b64url macaroon on stdout. Any
@@ -352,7 +359,7 @@ fi
 
 section "inspect logs.db row"
 echo "  The logs row carries the dim headers in metadata. Look for"
-echo "  the row with run-id=$RUN_ID:"
+echo "  the row with run-id=$(gw_run_id "$RUN_ID"):"
 echo
 echo "    docker run --rm -v stakgraph-gateway-data:/data alpine:3.23 \\"
 echo "      sh -c \"apk add -q sqlite >/dev/null && sqlite3 /data/logs.db \\"
@@ -360,7 +367,7 @@ echo "        \\\"SELECT json_extract(metadata,'\\\$.run-id') AS run_id,"
 echo "                 json_extract(metadata,'\\\$.user-id') AS user,"
 echo "                 json_extract(metadata,'\\\$.agent-name') AS agent,"
 echo "                 model, ROUND(cost,6) AS cost, status"
-echo "          FROM logs WHERE json_extract(metadata,'\\\$.run-id')='$RUN_ID';\\\"\""
+echo "          FROM logs WHERE json_extract(metadata,'\\\$.run-id')='$(gw_run_id "$RUN_ID")';\\\"\""
 
 # Best-effort inline run if docker is available.
 if command -v docker >/dev/null 2>&1; then
@@ -374,7 +381,7 @@ if command -v docker >/dev/null 2>&1; then
               model,
               ROUND(cost,6) AS cost,
               status
-       FROM logs WHERE json_extract(metadata,'\$.run-id')='$RUN_ID';\"" \
+       FROM logs WHERE json_extract(metadata,'\$.run-id')='$(gw_run_id "$RUN_ID")';\"" \
     2>/dev/null \
     | sed 's/^/    /' \
     || echo "    (no row found — the call may have failed before logging)"
@@ -421,14 +428,14 @@ sleep 3
 echo
 echo "  Plugin verify line (claims from macaroon, NOT headers):"
 docker compose -f "$REPO_ROOT/docker-compose.yml" logs --tail=50 bifrost 2>/dev/null \
-  | grep -E "auth: verify .* run_id=$MISMATCH_RUN_ID" \
+  | grep -E "auth: verify .* run_id=$(gw_run_id "$MISMATCH_RUN_ID")" \
   | tail -1 \
   | sed 's/^/    /' \
   || echo "    (no verify line found — adapter may not have processed this call)"
 
 echo
 echo "  logs.db row keyed by macaroon run_id=$MISMATCH_RUN_ID:"
-mac_row=$(fetch_logs_row "$MISMATCH_RUN_ID")
+mac_row=$(fetch_logs_row "$(gw_run_id "$MISMATCH_RUN_ID")")
 if [ -n "$mac_row" ]; then
   printf '    %s\n' "$mac_row"
 else
@@ -449,7 +456,7 @@ echo "  Assertions (post-canonicalization-fix expected):"
 # Post-fix: the macaroon-keyed row exists and carries macaroon values.
 # Pre-fix:  this row does not exist; the lie-keyed row does.
 expect_eq "macaroon row exists" \
-  "$MISMATCH_RUN_ID|u_alice|coder" \
+  "$(gw_run_id "$MISMATCH_RUN_ID")|u_alice|coder" \
   "$mac_row"
 # Post-fix: the lie-keyed row does not exist (headers were overwritten).
 # Pre-fix:  this row exists with all three lies.

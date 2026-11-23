@@ -59,8 +59,9 @@ type RunState struct {
 }
 
 // AgentState is a snapshot of one agent's current-bucket spend and
-// kill state. ConfiguredCapUSD is nil when the agent has no entry in
-// agent_budgets.
+// kill state. The spend includes the agent's sub-agents (the
+// accumulator charges every agent in the lineage). ConfiguredCapUSD
+// is nil when the agent has no entry in agent_budgets.
 type AgentState struct {
 	AgentName        string
 	Window           string

@@ -22,7 +22,7 @@ import (
 //  1. cost:run:<r>   >= layer.MaxCostUSD          every layer  → run_cost_exceeded
 //  2. cost:run:<r>   >= layer.Realms[realm] cap   every layer  → realm_budget_exceeded
 //  3. steps:run:<r>  >= layer.MaxSteps            every layer  → run_step_exceeded
-//  4. cost:agent:<a>:<bucket> >= agent_budgets cap             → agent_cost_exceeded
+//  4. cost:agent:<a>:<bucket> >= agent_budgets cap  every agent → agent_cost_exceeded
 //
 // The walk covers every block, leaf first, then each ancestor up to
 // block 0 (the person's grant): a child whose own $2 cap is untouched
@@ -44,8 +44,24 @@ import (
 // phase 6 says to stop an agent permanently (a kill:agent key only
 // lasts 24h).
 //
+// An agent's budget covers the agent and every sub-agent under it: the
+// walk checks every agent in the lineage (as the kill switch does), and
+// the accumulator charges each one. Checking only the innermost agent
+// would let a holder append a block under another name and spend
+// outside the budget, or past a cap_usd of 0.
+//
 // Fail-closed on Redis errors (402 budget_check_unavailable); no-op
 // in observability mode (Redis unconfigured), like CheckRevocations.
+
+// agentCap is one lineage agent's agent_budgets entry. spent is nil
+// when there is no counter to read (cap_usd 0, or a window that does
+// not parse).
+type agentCap struct {
+	name   string
+	budget AgentBudget
+	bucket string
+	spent  *redis.StringCmd
+}
 
 // capLayer is one block's caps, in walk order.
 type capLayer struct {
@@ -73,7 +89,6 @@ func CheckCaps(ctx context.Context, claims *macaroon.Claims, realmID string, now
 	}
 
 	layers := capLayers(claims, realmID)
-	agentBudget, agentConfigured := GetConfig().AgentBudgets[claims.AgentName]
 
 	pctx, cancel := context.WithTimeout(ctx, pipelineTimeout)
 	defer cancel()
@@ -90,15 +105,24 @@ func CheckCaps(ctx context.Context, claims *macaroon.Claims, realmID string, now
 			stepCmds[l.runID] = pipe.HGet(pctx, redisclient.Key(stepsRunPrefix+l.runID), "total")
 		}
 	}
-	var agentCmd *redis.StringCmd
-	var agentBucket string
-	if agentConfigured && agentBudget.CapUSD > 0 && agentBudget.Window != "" {
-		if w, err := duration.Parse(agentBudget.Window); err == nil {
-			agentBucket = w.BucketKey(now)
-			agentCmd = pipe.HGet(pctx, redisclient.Key(costAgentPrefix+claims.AgentName+":"+agentBucket), "total")
+	// Every agent in the lineage that has a budget, outermost first.
+	var agentCaps []agentCap
+	budgets := GetConfig().AgentBudgets
+	for _, name := range chainAgents(claims) {
+		b, ok := budgets[name]
+		if !ok {
+			continue
 		}
-		// An unparseable window is logged by the accumulator on
-		// every write; nothing to compare here, so no cap applies.
+		a := agentCap{name: name, budget: b}
+		if b.CapUSD > 0 && b.Window != "" {
+			if w, err := duration.Parse(b.Window); err == nil {
+				a.bucket = w.BucketKey(now)
+				a.spent = pipe.HGet(pctx, redisclient.Key(costAgentPrefix+name+":"+a.bucket), "total")
+			}
+			// An unparseable window is logged by the accumulator on
+			// every write; nothing to compare here, so no cap applies.
+		}
+		agentCaps = append(agentCaps, a)
 	}
 
 	if _, err := pipe.Exec(pctx); err != nil && !errors.Is(err, redis.Nil) {
@@ -156,25 +180,28 @@ func CheckCaps(ctx context.Context, claims *macaroon.Claims, realmID string, now
 		}
 	}
 
-	// 4. Per-agent windowed budget.
-	if agentConfigured && agentBudget.CapUSD <= 0 {
-		return &AdapterError{
-			Code:       "agent_cost_exceeded",
-			HTTPStatus: 402,
-			Message:    fmt.Sprintf("agent %s has a $0 budget (blocked by operator config)", claims.AgentName),
+	// 4. Per-agent windowed budget, outermost agent first.
+	for _, a := range agentCaps {
+		if a.budget.CapUSD <= 0 {
+			return &AdapterError{
+				Code:       "agent_cost_exceeded",
+				HTTPStatus: 402,
+				Message:    fmt.Sprintf("agent %s has a $0 budget (blocked by operator config)", a.name),
+			}
 		}
-	}
-	if agentCmd != nil {
-		spent, err := hashFloat(agentCmd)
+		if a.spent == nil {
+			continue
+		}
+		spent, err := hashFloat(a.spent)
 		if err != nil {
-			return budgetUnavailable(fmt.Sprintf("cost:agent:%s: %v", claims.AgentName, err))
+			return budgetUnavailable(fmt.Sprintf("cost:agent:%s: %v", a.name, err))
 		}
-		if spent >= agentBudget.CapUSD {
+		if spent >= a.budget.CapUSD {
 			return &AdapterError{
 				Code:       "agent_cost_exceeded",
 				HTTPStatus: 402,
 				Message: fmt.Sprintf("agent %s spent $%.4f of its $%.2f/%s cap (bucket %s)",
-					claims.AgentName, spent, agentBudget.CapUSD, agentBudget.Window, agentBucket),
+					a.name, spent, a.budget.CapUSD, a.budget.Window, a.bucket),
 			}
 		}
 	}
