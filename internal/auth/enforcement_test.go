@@ -237,11 +237,11 @@ func TestApplyToLLMPre_EnforceMode_RedisDownFailsClosed(t *testing.T) {
 // equals `realms`.
 func realmOpts(now time.Time, realms ...string) macaroonOptions {
 	opts := defaultMacaroonOptions(now)
-	rb := map[string]macaroon.RealmBudget{}
+	rb := map[string]macaroon.RealmCap{}
 	for _, r := range realms {
-		rb[r] = macaroon.RealmBudget{MaxTotalUSD: 100}
+		rb[r] = macaroon.RealmCap{MaxCostUSD: 100}
 	}
-	opts.budget = &macaroon.Budget{RealmBudgets: rb}
+	opts.realms = rb
 	return opts
 }
 

@@ -83,30 +83,31 @@ func newMiniRedis(t *testing.T) *miniredis.Miniredis {
 	return mr
 }
 
-// buildMacaroon assembles a fully-signed wire-format macaroon
-// against the test keys. Knobs let each test tweak the fields it
-// cares about; everything else is fixed and minimal.
-//
-// Phase 11 changes: the UA's grant is just `agents` (no separate
-// `realms`); the invocation has no singular `realm` field; per-realm
-// scoping rides on the optional Budget.RealmBudgets map.
+// buildMacaroon assembles a fully-signed v2 token against the test
+// keys: block 0 (the org's grant to the person) and block 1 (the
+// person's run for an agent), proof = the agent key. Knobs let each
+// test tweak the fields it cares about; everything else is fixed and
+// minimal. The ua*/inv* names are kept from v1 for the two blocks.
 type macaroonOptions struct {
-	orgID      string
-	userID     string
-	agents     []string
-	invAgents  []string
+	orgID  string
+	userID string
+	// Block 0: the org's grant to the person.
+	grantRunID      string
+	agents          []string // which agents the person may run
+	grantMaxCostUSD float64  // v1's budget.max_total_usd
+	realms          map[string]macaroon.RealmCap
+	uaExp           time.Time
+	uaIAT           time.Time
+	uaNonce         string
+	// Block 1: the person's run for an agent.
+	agent      string
 	runID      string
 	maxCostUSD float64
 	maxSteps   int
-	uaExp      time.Time
-	uaIAT      time.Time
 	invExp     time.Time
 	invIAT     time.Time
-	uaNonce    string
 	invNonce   string
-	budget     *macaroon.Budget
-	invBudget  *macaroon.Budget
-	// signWithPriv overrides the org private key — used in tests
+	// signWithOrgPriv overrides the org private key — used in tests
 	// that need to exercise the "signed by an untrusted key" path.
 	signWithOrgPriv []byte
 }
@@ -115,8 +116,9 @@ func defaultMacaroonOptions(now time.Time) macaroonOptions {
 	return macaroonOptions{
 		orgID:      testOrgID,
 		userID:     testUserID,
+		grantRunID: "ua_test_grant_000000000000",
 		agents:     []string{"coder"},
-		invAgents:  []string{"coder"},
+		agent:      "coder",
 		runID:      "r_test_run_000000000000000",
 		maxCostUSD: 5.00,
 		maxSteps:   100,
@@ -132,55 +134,56 @@ func defaultMacaroonOptions(now time.Time) macaroonOptions {
 func buildMacaroon(t *testing.T, opts macaroonOptions) string {
 	t.Helper()
 
-	userPub, err := macaroon.Ed25519PublicKey(testUserPriv())
+	person, err := macaroon.KeyPairFromPrivate(macaroon.AlgEd25519, testUserPriv())
 	if err != nil {
-		t.Fatalf("derive user pubkey: %v", err)
+		t.Fatalf("person key: %v", err)
 	}
-
-	ua := macaroon.UserAuthorization{
-		UserID:     opts.userID,
-		UserPubkey: macaroon.PubKey{Alg: macaroon.AlgEd25519, Key: macaroon.BytesToHex(userPub)},
-		Agents:     opts.agents,
-		Budget:     opts.budget,
-		IAT:        opts.uaIAT.UTC().Format(time.RFC3339),
-		Exp:        opts.uaExp.UTC().Format(time.RFC3339),
-		Nonce:      opts.uaNonce,
-	}
-
 	signKey := opts.signWithOrgPriv
 	if signKey == nil {
 		signKey = testOrgPriv()
 	}
-	signedUA, err := macaroon.SignUserAuthorizationSingle(ua, signKey)
+	org, err := macaroon.KeyPairFromPrivate(macaroon.AlgEcdsaSecp256k1Sha256, signKey)
 	if err != nil {
-		t.Fatalf("sign ua: %v", err)
+		t.Fatalf("org key: %v", err)
 	}
 
-	inv := macaroon.Invocation{
-		Agents:     opts.invAgents,
-		RunID:      opts.runID,
-		MaxCostUSD: opts.maxCostUSD,
-		MaxSteps:   opts.maxSteps,
-		Budget:     opts.invBudget,
-		IAT:        opts.invIAT.UTC().Format(time.RFC3339),
-		Exp:        opts.invExp.UTC().Format(time.RFC3339),
-		Nonce:      opts.invNonce,
-	}
-	signedInv, err := macaroon.SignInvocation(inv, testUserPriv())
+	root, err := macaroon.SignRoot(opts.orgID, macaroon.Caveats{
+		RunID:      opts.grantRunID,
+		UserID:     opts.userID,
+		Agents:     opts.agents,
+		MaxCostUSD: opts.grantMaxCostUSD,
+		Realms:     opts.realms,
+		IAT:        opts.uaIAT.UTC().Format(time.RFC3339),
+		Exp:        opts.uaExp.UTC().Format(time.RFC3339),
+		Nonce:      opts.uaNonce,
+	}, person.Pub, org)
 	if err != nil {
-		t.Fatalf("sign invocation: %v", err)
+		t.Fatalf("sign block 0: %v", err)
 	}
 
-	m := macaroon.Macaroon{
-		V:                 1,
-		OrgID:             opts.orgID,
-		UserAuthorization: signedUA,
-		Invocation:        signedInv,
-		Attenuations:      []macaroon.Attenuation{},
-	}
-	encoded, err := macaroon.EncodeMacaroon(m)
+	agentKey, err := macaroon.GenerateKey(macaroon.AlgEd25519)
 	if err != nil {
-		t.Fatalf("encode macaroon: %v", err)
+		t.Fatalf("agent key: %v", err)
+	}
+	tok, err := macaroon.Attenuate(
+		macaroon.Token{V: 2, OrgID: opts.orgID, Blocks: []macaroon.Block{root}, Proof: macaroon.BytesToHex(person.Priv)},
+		macaroon.Caveats{
+			RunID:      opts.runID,
+			Agent:      opts.agent,
+			MaxCostUSD: opts.maxCostUSD,
+			MaxSteps:   opts.maxSteps,
+			IAT:        opts.invIAT.UTC().Format(time.RFC3339),
+			Exp:        opts.invExp.UTC().Format(time.RFC3339),
+			Nonce:      opts.invNonce,
+		},
+		agentKey,
+	)
+	if err != nil {
+		t.Fatalf("sign block 1: %v", err)
+	}
+	encoded, err := macaroon.EncodeToken(tok)
+	if err != nil {
+		t.Fatalf("encode token: %v", err)
 	}
 	return encoded
 }

@@ -117,9 +117,9 @@ func Verify(macaroonB64 string, registry *trust.Registry, now time.Time) (*macar
 			lastVerifyErr = ve
 			// Only re-try with a different key when the failure was
 			// signature-related; anything structural (malformed,
-			// expired, attenuation invalid) will reproduce against
+			// expired, a later block's signature, the proof) reproduces against
 			// every key, so short-circuit those.
-			if ve.Code != macaroon.ErrInvalidUserAuthorization {
+			if ve.Code != macaroon.ErrInvalidRootSignature {
 				break
 			}
 			continue
@@ -193,17 +193,20 @@ func candidatePolicies(org trust.Org, now time.Time) []macaroon.Policy {
 	return policies
 }
 
-// singleKeyPolicy wraps a hex-encoded compressed secp256k1 pubkey in
-// the pure verifier's Policy envelope. Phase 4 ships only the
-// "single" shape; multisig will land via the trust registry storing
-// a Policy directly rather than just a Pubkey, at which point this
-// helper becomes one branch of a switch.
+// singleKeyPolicy wraps the org's hex pubkey in the pure verifier's
+// Policy envelope. The registry stores only the hex, so the algorithm
+// comes from its length (phase 13): 64 hex characters is an Ed25519
+// key, anything else is read as a compressed secp256k1 key (66), and
+// a wrong length simply fails to verify. Multisig will land via the
+// trust registry storing a Policy directly rather than just a Pubkey,
+// at which point this helper becomes one branch of a switch.
 func singleKeyPolicy(pubkeyHex string) macaroon.Policy {
+	alg := macaroon.AlgEcdsaSecp256k1Sha256
+	if len(pubkeyHex) == 64 {
+		alg = macaroon.AlgEd25519
+	}
 	return macaroon.Policy{
 		Type: macaroon.PolicySingle,
-		Key: &macaroon.PubKey{
-			Alg: macaroon.AlgEcdsaSecp256k1Sha256,
-			Key: pubkeyHex,
-		},
+		Key:  &macaroon.PubKey{Alg: alg, Key: pubkeyHex},
 	}
 }

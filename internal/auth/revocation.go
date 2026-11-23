@@ -21,8 +21,9 @@ const (
 	revokePrefix = "revoke:"
 
 	// revokeUserBeforePrefix + <user_id> stores an RFC 3339 UTC
-	// timestamp. Any user_authorization.iat strictly before it is
-	// rejected (covers org-level offboarding / user re-issuance).
+	// timestamp. Any token whose block 0 (the org's grant to the
+	// person) has an iat strictly before it is rejected (covers
+	// org-level offboarding / user re-issuance).
 	revokeUserBeforePrefix = "revoke_user_before:"
 
 	// killRunPrefix + <run_id> is the per-run kill switch. Checked
@@ -143,10 +144,9 @@ func CheckRevocations(ctx context.Context, claims *macaroon.Claims) *AdapterErro
 		}
 	}
 
-	// User-level revocation: compare ua.iat (from the macaroon)
-	// against the stored cutoff. Note phase-6 says we compare
-	// against ua.iat specifically, NOT invocation.iat — see
-	// "revoke_user_before" in the schema.
+	// User-level revocation: compare block 0's iat (the org's grant
+	// to the person) against the stored cutoff — not a later block's,
+	// see "revoke_user_before" in the phase-6 schema.
 	cutoffRaw, err := userBeforeCmd.Result()
 	switch {
 	case errors.Is(err, redis.Nil):
@@ -219,7 +219,7 @@ func CheckRevocations(ctx context.Context, claims *macaroon.Claims) *AdapterErro
 }
 
 // chainRunIDs returns every distinct run_id in the verified chain,
-// outermost (invocation) first, leaf last. Falls back to Claims.RunID
+// outermost (block 0) first, leaf last. Falls back to Claims.RunID
 // when the chain is empty so callers that only populate the leaf
 // still get their kill checked.
 func chainRunIDs(claims *macaroon.Claims) []string {
@@ -240,15 +240,11 @@ func chainRunIDs(claims *macaroon.Claims) []string {
 
 // revokeCodeFor maps the position of a revoked nonce in the
 // Claims.Nonces slice to a specific failure code, so an operator
-// reading a 401 can tell whether it was the user_authorization
-// (issuance) or an inner layer (per-invocation / per-attenuation)
-// that was killed.
+// reading a 401 can tell whether it was the org's grant to the person
+// (block 0, issuance) or a later block that was revoked.
 //
-// Claims.Nonces order is fixed by the pure verifier:
-//
-//	[0]   ua.nonce
-//	[1]   invocation.nonce
-//	[2:]  attenuations[i].caveats.nonce
+// Claims.Nonces order is fixed by the pure verifier: one per block,
+// block 0 first.
 func revokeCodeFor(i int) string {
 	switch i {
 	case 0:
@@ -258,14 +254,13 @@ func revokeCodeFor(i int) string {
 	}
 }
 
-// uaIATFromClaims pulls the user_authorization.iat out of the
-// verified claims — the phase-6 comparison axis for
-// revoke_user_before (NOT the invocation's iat: user-level
-// revocation invalidates org-issued user authorizations, and an
-// invocation signed after the cutoff against a re-issued UA is
-// fine). The pure verifier surfaces it as Claims.UAIAT.
+// uaIATFromClaims pulls block 0's iat out of the verified claims —
+// the phase-6 comparison axis for revoke_user_before (not a later
+// block's: user-level revocation invalidates the org's grants to the
+// person, and a run started after the cutoff under a re-issued grant
+// is fine). The pure verifier surfaces it as Claims.IAT.
 func uaIATFromClaims(claims *macaroon.Claims) (time.Time, error) {
-	return time.Parse(time.RFC3339, claims.UAIAT)
+	return time.Parse(time.RFC3339, claims.IAT)
 }
 
 // redactNonce shortens a 32-char hex nonce to its first 8 chars +

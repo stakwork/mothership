@@ -25,11 +25,11 @@ const (
 	DimAgentName = "agent-name"
 	DimRealmID   = "realm-id"
 	DimUserID    = "user-id"
-	// DimOrgID is the id of the org that signed off on the
-	// invocation's user_authorization envelope. Surfaced on the
+	// DimOrgID is the id of the org that signed block 0 of the
+	// macaroon (its grant to the person). Surfaced on the
 	// dashboard's Provenance card so an operator can confirm
 	// "alice's call was authorized by org_acme, which is in our
-	// trust registry." See phase-4-macaroon-shape.md for the
+	// trust registry." See phase-13-signed-block-chain.md for the
 	// signing model and phase-5-trust-registry.md for how the
 	// org_id is resolved.
 	DimOrgID = "org-id"

@@ -10,8 +10,8 @@ import (
 	macaroon "github.com/stakwork/mothership/auth/go"
 )
 
-// chainClaims builds a verified-claims shape with an invocation layer
-// plus n attenuation layers, exps spaced so per-layer TTLs differ.
+// chainClaims builds a verified-claims shape with one layer per run
+// id, exps spaced so per-layer TTLs differ.
 func chainClaims(runIDs []string, exps []string) *macaroon.Claims {
 	chain := make([]macaroon.ChainLayer, len(runIDs))
 	for i := range runIDs {
@@ -23,23 +23,21 @@ func chainClaims(runIDs []string, exps []string) *macaroon.Claims {
 		}
 	}
 	leaf := len(runIDs) - 1
+	earliest := exps[0]
+	for _, e := range exps {
+		if e < earliest {
+			earliest = e
+		}
+	}
 	return &macaroon.Claims{
 		OrgID:     "org_acme",
 		UserID:    testUserID,
 		AgentName: "coder",
 		RunID:     runIDs[leaf],
-		EffectiveCaveats: macaroon.EffectiveCaveats{
-			Agents:     []string{"coder"},
-			MaxCostUSD: 5,
-			MaxSteps:   100,
-			Exp:        exps[leaf],
-		},
-		UANonce: "aaaa000000000000000000000000aaaa",
-		UAIAT:   "2026-05-14T09:00:00Z",
-		UAExp:   "2026-06-14T09:00:00Z",
-		Chain:   chain,
-		Nonces:  []string{"aaaa000000000000000000000000aaaa", "bbbb000000000000000000000000bbbb"},
-		IAT:     "2026-05-14T10:00:00Z",
+		Exp:       earliest,
+		Chain:     chain,
+		Nonces:    []string{"aaaa000000000000000000000000aaaa", "bbbb000000000000000000000000bbbb"},
+		IAT:       "2026-05-14T09:00:00Z",
 	}
 }
 
@@ -120,29 +118,31 @@ func TestAccumulate_DuplicateRunIDsWrittenOnce(t *testing.T) {
 	}
 }
 
-func TestAccumulate_UAEnvelope_OnlyWhenBudgetSet(t *testing.T) {
+// Block 0 (the person's grant) is one more layer: its counter is the
+// person's total, written like any run's (v1 kept a separate cost:ua).
+func TestAccumulate_GrantIsALayer(t *testing.T) {
 	mr := newMiniRedis(t)
-	claims := chainClaims([]string{"r_1"}, []string{"2026-05-14T11:00:00Z"})
-
-	// No UABudget → no cost:ua key.
+	claims := chainClaims(
+		[]string{"ua_grant", "r_1"},
+		[]string{"2026-06-14T09:00:00Z", "2026-05-14T11:00:00Z"},
+	)
 	if err := accumulate(context.Background(), claims, 0.25, nil, testNow()); err != nil {
 		t.Fatal(err)
 	}
-	if mr.Exists("bifrost:cost:ua:" + claims.UANonce) {
-		t.Fatal("cost:ua written despite nil UABudget")
+	if got := mr.HGet("bifrost:cost:run:ua_grant", "total"); got != "0.25" {
+		t.Errorf("cost:run:ua_grant = %q, want 0.25", got)
 	}
-
-	// With a budget → accumulate under the UA nonce, TTL from ua.exp
-	// (a month out → clamped to the 7d ceiling).
-	claims.UABudget = &macaroon.Budget{MaxTotalUSD: 200}
-	if err := accumulate(context.Background(), claims, 0.25, nil, testNow()); err != nil {
-		t.Fatal(err)
+	// A month out → clamped to the 7d ceiling.
+	if got, want := mr.TTL("bifrost:cost:run:ua_grant"), 7*24*time.Hour; got != want {
+		t.Errorf("cost:run:ua_grant TTL = %s, want %s", got, want)
 	}
-	if got := mr.HGet("bifrost:cost:ua:"+claims.UANonce, "total"); got != "0.25" {
-		t.Errorf("cost:ua total = %q, want 0.25", got)
+	if got := hgetall(mr, "bifrost:meta:run:r_1")["parent"]; got != "ua_grant" {
+		t.Errorf("meta:run:r_1 parent = %q, want ua_grant", got)
 	}
-	if got, want := mr.TTL("bifrost:cost:ua:"+claims.UANonce), 7*24*time.Hour; got != want {
-		t.Errorf("cost:ua TTL = %s, want %s (7d ceiling)", got, want)
+	for _, k := range mr.Keys() {
+		if len(k) >= len("bifrost:cost:ua:") && k[:len("bifrost:cost:ua:")] == "bifrost:cost:ua:" {
+			t.Fatalf("v1 key written: %s", k)
+		}
 	}
 }
 
@@ -226,39 +226,6 @@ func TestApplyToLLMPost_NilClaimsOrNoRedis_NoOp(t *testing.T) {
 	}
 }
 
-func TestAccumulate_UAEnvelope_WrittenForRealmCap(t *testing.T) {
-	mr := newMiniRedis(t)
-	reg := newTestRegistry(t)
-	if _, err := reg.SetRealmID("w1"); err != nil {
-		t.Fatal(err)
-	}
-	SetTrustRegistry(reg)
-	t.Cleanup(func() { SetTrustRegistry(nil) })
-
-	// No org-wide max_total_usd, but a cap for this swarm's realm:
-	// the cap walk compares cost:ua against it, so it must be written.
-	claims := chainClaims([]string{"r_1"}, []string{"2026-05-14T11:00:00Z"})
-	claims.EffectiveCaveats.Budget = &macaroon.Budget{
-		RealmBudgets: map[string]macaroon.RealmBudget{"w1": {MaxTotalUSD: 3}},
-	}
-	if err := accumulate(context.Background(), claims, 0.25, nil, testNow()); err != nil {
-		t.Fatal(err)
-	}
-	if got := mr.HGet("bifrost:cost:ua:"+claims.UANonce, "total"); got != "0.25" {
-		t.Errorf("cost:ua total = %q, want 0.25", got)
-	}
-
-	// A realm cap for some other swarm doesn't count here.
-	mr.FlushAll()
-	claims.EffectiveCaveats.Budget.RealmBudgets = map[string]macaroon.RealmBudget{"w2": {MaxTotalUSD: 3}}
-	if err := accumulate(context.Background(), claims, 0.25, nil, testNow()); err != nil {
-		t.Fatal(err)
-	}
-	if mr.Exists("bifrost:cost:ua:" + claims.UANonce) {
-		t.Fatal("cost:ua written for a realm cap that isn't this swarm's")
-	}
-}
-
 func TestAccumulate_RunMetaAndUserIndex(t *testing.T) {
 	mr := newMiniRedis(t)
 	claims := chainClaims(
@@ -313,23 +280,6 @@ func TestAccumulate_RunMetaAndUserIndex(t *testing.T) {
 	}
 	if got := mr.TTL("bifrost:runs:user:" + testUserID); got != runsUserTTL {
 		t.Errorf("runs:user ttl = %v, want %v", got, runsUserTTL)
-	}
-}
-
-func TestAccumulate_NoChainSynthesizesLeafMeta(t *testing.T) {
-	mr := newMiniRedis(t)
-	claims := chainClaims([]string{"r_solo"}, []string{"2026-05-14T12:00:00Z"})
-	claims.Chain = nil // older callers: leaf comes from RunID + EffectiveCaveats
-
-	if err := accumulate(context.Background(), claims, 0.25, nil, testNow()); err != nil {
-		t.Fatal(err)
-	}
-	if got := mr.HGet("bifrost:cost:run:r_solo", "total"); got != "0.25" {
-		t.Errorf("cost:run:r_solo = %q", got)
-	}
-	meta := hgetall(mr, "bifrost:meta:run:r_solo")
-	if meta["max_cost_usd"] != "5" || meta["max_steps"] != "100" || meta["agent"] != "coder" {
-		t.Errorf("meta:run:r_solo = %v", meta)
 	}
 }
 

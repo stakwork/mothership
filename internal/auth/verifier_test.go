@@ -90,8 +90,8 @@ func TestVerify_WrongSigningKey_Rejected(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected verification failure for wrong key")
 	}
-	if err.Code != string(macaroon.ErrInvalidUserAuthorization) {
-		t.Fatalf("want invalid_user_authorization, got %s", err.Code)
+	if err.Code != string(macaroon.ErrInvalidRootSignature) {
+		t.Fatalf("want invalid_root_signature, got %s", err.Code)
 	}
 }
 
@@ -105,8 +105,8 @@ func TestVerify_ExpiredUA(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected expiry rejection")
 	}
-	if err.Code != string(macaroon.ErrUserAuthorizationExpired) {
-		t.Fatalf("want user_authorization_expired, got %s", err.Code)
+	if err.Code != string(macaroon.ErrMacaroonExpired) {
+		t.Fatalf("want macaroon_expired, got %s", err.Code)
 	}
 }
 
@@ -163,8 +163,8 @@ func TestVerify_GraceKey_RejectedAfterWindow(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected rejection: grace window already expired")
 	}
-	if err.Code != string(macaroon.ErrInvalidUserAuthorization) {
-		t.Fatalf("want invalid_user_authorization, got %s", err.Code)
+	if err.Code != string(macaroon.ErrInvalidRootSignature) {
+		t.Fatalf("want invalid_root_signature, got %s", err.Code)
 	}
 }
 

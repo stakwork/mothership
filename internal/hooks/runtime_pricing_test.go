@@ -42,12 +42,8 @@ func cappedClaimsContext(runID string) (*schemas.BifrostContext, *macaroon.Claim
 		UserID:    "u_test",
 		AgentName: "chat-agent",
 		RunID:     runID,
-		EffectiveCaveats: macaroon.EffectiveCaveats{
-			Agents:     []string{"chat-agent"},
-			MaxCostUSD: 1,
-			Exp:        exp,
-		},
-		Chain: []macaroon.ChainLayer{{RunID: runID, MaxCostUSD: 1, Exp: exp}},
+		Exp:       exp,
+		Chain:     []macaroon.ChainLayer{{RunID: runID, MaxCostUSD: 1, Exp: exp}},
 	}
 	ctx := schemas.NewBifrostContext(context.Background(), time.Time{})
 	pluginctx.SetVerifiedClaims(ctx, claims)

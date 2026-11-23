@@ -9,23 +9,18 @@ import (
 	"github.com/stakwork/mothership/internal/pluginctx"
 )
 
-// capClaims: a two-layer chain (parent $5/100 steps → child $2/40
-// steps) under a UA with a $10 envelope, agent "coder".
+// capClaims: the person's grant ($10 in total) → parent run ($5/100
+// steps) → child run ($2/40 steps), agent "coder".
 func capClaims() *macaroon.Claims {
 	return &macaroon.Claims{
 		OrgID:     testOrgID,
 		UserID:    testUserID,
 		AgentName: "coder",
 		RunID:     "r_child",
-		UANonce:   "aaaa000000000000000000000000aaaa",
-		UABudget:  &macaroon.Budget{MaxTotalUSD: 10},
-		Nonces:    []string{"aaaa000000000000000000000000aaaa", "bbbb000000000000000000000000bbbb"},
+		Nonces:    []string{"aaaa000000000000000000000000aaaa", "bbbb000000000000000000000000bbbb", "cccc000000000000000000000000cccc"},
 		IAT:       time.Now().UTC().Format(time.RFC3339),
-		EffectiveCaveats: macaroon.EffectiveCaveats{
-			MaxCostUSD: 2,
-			MaxSteps:   40,
-		},
 		Chain: []macaroon.ChainLayer{
+			{RunID: "ua_grant", MaxCostUSD: 10},
 			{RunID: "r_parent", MaxCostUSD: 5, MaxSteps: 100},
 			{RunID: "r_child", MaxCostUSD: 2, MaxSteps: 40},
 		},
@@ -68,7 +63,7 @@ func TestCheckCaps_UnderEveryCap_Passes(t *testing.T) {
 	mr.HSet("bifrost:cost:run:r_child", "total", "1.99")
 	mr.HSet("bifrost:cost:run:r_parent", "total", "4.99")
 	mr.HSet("bifrost:steps:run:r_child", "total", "39")
-	mr.HSet("bifrost:cost:ua:aaaa000000000000000000000000aaaa", "total", "9.99")
+	mr.HSet("bifrost:cost:run:ua_grant", "total", "9.99")
 	if err := check(t, capClaims(), ""); err != nil {
 		t.Fatalf("under cap must pass, got %+v", err)
 	}
@@ -103,33 +98,62 @@ func TestCheckCaps_AncestorStepsExceeded(t *testing.T) {
 	wantCode(t, check(t, capClaims(), ""), "run_step_exceeded")
 }
 
-func TestCheckCaps_UAEnvelopeExceeded(t *testing.T) {
+// The person's total is block 0's cap on its own run counter (v1 kept
+// it in a separate cost:ua key with its own ua_budget_exceeded code).
+func TestCheckCaps_GrantTotalExceeded(t *testing.T) {
 	mr := newMiniRedis(t)
-	mr.HSet("bifrost:cost:ua:aaaa000000000000000000000000aaaa", "total", "10")
-	wantCode(t, check(t, capClaims(), ""), "ua_budget_exceeded")
+	mr.HSet("bifrost:cost:run:ua_grant", "total", "10")
+	err := check(t, capClaims(), "")
+	wantCode(t, err, "run_cost_exceeded")
+	if want := "run ua_grant"; !contains(err.Message, want) {
+		t.Fatalf("message should name the grant: %q", err.Message)
+	}
 }
 
-func TestCheckCaps_NoUABudget_NoUARead(t *testing.T) {
+func TestCheckCaps_NoGrantCap_NoGrantLimit(t *testing.T) {
 	mr := newMiniRedis(t)
-	mr.HSet("bifrost:cost:ua:aaaa000000000000000000000000aaaa", "total", "999")
+	mr.HSet("bifrost:cost:run:ua_grant", "total", "999")
 	c := capClaims()
-	c.UABudget = nil
+	c.Chain[0].MaxCostUSD = 0
 	if err := check(t, c, ""); err != nil {
-		t.Fatalf("no UA budget ⇒ no UA cap, got %+v", err)
+		t.Fatalf("no grant cap ⇒ no grant limit, got %+v", err)
 	}
+}
+
+// A child claiming more than its parent is still stopped by the
+// parent: every block's caps apply, so v2 needs no narrowing check.
+func TestCheckCaps_WiderChild_StoppedByParent(t *testing.T) {
+	mr := newMiniRedis(t)
+	mr.HSet("bifrost:cost:run:r_parent", "total", "5")
+	mr.HSet("bifrost:cost:run:r_child", "total", "5")
+	c := capClaims()
+	c.Chain[2].MaxCostUSD = 100
+	err := check(t, c, "")
+	wantCode(t, err, "run_cost_exceeded")
+	if want := "run r_parent"; !contains(err.Message, want) {
+		t.Fatalf("message should name the parent: %q", err.Message)
+	}
+}
+
+// Blocks that share a run_id share its counter, and each one's cap
+// applies — the inner one is not skipped as a duplicate.
+func TestCheckCaps_SharedRunID_EveryCapApplies(t *testing.T) {
+	mr := newMiniRedis(t)
+	mr.HSet("bifrost:cost:run:r_parent", "total", "1")
+	c := capClaims()
+	c.Chain[2] = macaroon.ChainLayer{RunID: "r_parent", MaxCostUSD: 1}
+	wantCode(t, check(t, c, ""), "run_cost_exceeded")
 }
 
 func TestCheckCaps_RealmBudget(t *testing.T) {
 	mr := newMiniRedis(t)
-	mr.HSet("bifrost:cost:ua:aaaa000000000000000000000000aaaa", "total", "3")
+	mr.HSet("bifrost:cost:run:ua_grant", "total", "3")
 	c := capClaims()
-	c.EffectiveCaveats.Budget = &macaroon.Budget{
-		RealmBudgets: map[string]macaroon.RealmBudget{
-			"w1": {MaxTotalUSD: 3},
-			"w2": {MaxTotalUSD: 50},
-		},
+	c.Chain[0].Realms = map[string]macaroon.RealmCap{
+		"w1": {MaxCostUSD: 3},
+		"w2": {MaxCostUSD: 50},
 	}
-	// This swarm is w1: $3 of $3 ⇒ realm cap first (before the $10 UA cap).
+	// This swarm is w1: $3 of $3 ⇒ realm cap (under the $10 grant cap).
 	wantCode(t, check(t, c, "w1"), "realm_budget_exceeded")
 	// Swarm w2 has a $50 realm cap; $3 is fine.
 	if err := check(t, c, "w2"); err != nil {
@@ -141,15 +165,12 @@ func TestCheckCaps_RealmBudget(t *testing.T) {
 	}
 }
 
-func TestCheckCaps_RealmCapOnly_ReadsUACounter(t *testing.T) {
+func TestCheckCaps_RealmCapOnAnInnerBlock(t *testing.T) {
 	mr := newMiniRedis(t)
-	mr.HSet("bifrost:cost:ua:aaaa000000000000000000000000aaaa", "total", "3")
+	mr.HSet("bifrost:cost:run:r_child", "total", "1")
 	c := capClaims()
-	c.UABudget = nil // no org-wide total; only a realm cap
-	c.EffectiveCaveats.Budget = &macaroon.Budget{
-		RealmBudgets: map[string]macaroon.RealmBudget{"w1": {MaxTotalUSD: 3}},
-	}
-	wantCode(t, check(t, c, "w1"), "realm_budget_exceeded")
+	c.Chain[2].Realms = map[string]macaroon.RealmCap{"w2": {MaxCostUSD: 1}}
+	wantCode(t, check(t, c, "w2"), "realm_budget_exceeded")
 }
 
 func TestCheckCaps_AgentBudget(t *testing.T) {
@@ -188,28 +209,16 @@ func TestCheckCaps_ZeroCaveatCaps_MeanNoCap(t *testing.T) {
 	mr := newMiniRedis(t)
 	mr.HSet("bifrost:cost:run:r_solo", "total", "1000")
 	mr.HSet("bifrost:steps:run:r_solo", "total", "1000")
-	c := &macaroon.Claims{UserID: testUserID, RunID: "r_solo"} // no Chain, no caps
+	c := &macaroon.Claims{UserID: testUserID, RunID: "r_solo", Chain: []macaroon.ChainLayer{{RunID: "r_solo"}}}
 	if err := check(t, c, ""); err != nil {
 		t.Fatalf("zero caps ⇒ uncapped, got %+v", err)
 	}
-}
-
-func TestCheckCaps_NoChain_FallsBackToEffectiveCaveats(t *testing.T) {
-	mr := newMiniRedis(t)
-	mr.HSet("bifrost:cost:run:r_solo", "total", "2")
-	c := &macaroon.Claims{
-		UserID:           testUserID,
-		RunID:            "r_solo",
-		EffectiveCaveats: macaroon.EffectiveCaveats{MaxCostUSD: 2},
-	}
-	wantCode(t, check(t, c, ""), "run_cost_exceeded")
 }
 
 func TestCheckCaps_Order_CostBeforeSteps(t *testing.T) {
 	mr := newMiniRedis(t)
 	mr.HSet("bifrost:cost:run:r_child", "total", "9")
 	mr.HSet("bifrost:steps:run:r_child", "total", "99")
-	mr.HSet("bifrost:cost:ua:aaaa000000000000000000000000aaaa", "total", "99")
 	wantCode(t, check(t, capClaims(), ""), "run_cost_exceeded")
 }
 
