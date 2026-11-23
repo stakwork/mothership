@@ -44,6 +44,8 @@ of the last key. Dropping a block would need the private key of the
 block before, which nobody downstream of it ever had, so a holder can
 narrow its token but never shorten it.
 
+A token holds at most 16 blocks; a longer one is malformed.
+
 There is no narrowing check: every block's limits apply, and the
 gateway checks all of them (a child that claims $100 under a $5
 parent stops at $5, because the parent's counter includes everything

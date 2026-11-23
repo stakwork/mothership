@@ -25,6 +25,13 @@ export type VerifyErrorCode =
   | "macaroon_expired"
   | "agent_not_permitted";
 
+/**
+ * The longest chain a verifier accepts: block 0 plus 15 hops. Each block
+ * costs a signature check and, at the gateway, its own Redis keys, so an
+ * unbounded chain lets one request create thousands.
+ */
+export const MAX_BLOCKS = 16;
+
 export class VerifyError extends Error {
   readonly code: VerifyErrorCode;
   constructor(code: VerifyErrorCode, message?: string) {
@@ -184,6 +191,7 @@ function validateToken(t: unknown): asserts t is Token {
   nonEmptyString(o.org_id, "org_id");
   hex(o.proof, "proof");
   if (!Array.isArray(o.blocks) || o.blocks.length === 0) malformed("blocks must be a non-empty array");
+  if (o.blocks.length > MAX_BLOCKS) malformed(`too many blocks: ${o.blocks.length} (at most ${MAX_BLOCKS})`);
   o.blocks.forEach((b, i) => validateBlock(b, i));
 }
 

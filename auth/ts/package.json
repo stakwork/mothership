@@ -1,6 +1,6 @@
 {
   "name": "gatekey",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Macaroon v2 (a signed block chain with a proof key) signer, attenuator, and verifier for cryptographic LLM governance, plus transparency-log (RFC 9162 Merkle) verifiers",
   "type": "module",
   "main": "./dist/index.js",

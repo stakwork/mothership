@@ -220,7 +220,8 @@ base64url( JCS({
 
 All binary fields are lowercase hex (no `0x` prefix). All timestamps
 are RFC 3339 UTC strings. Canonical JSON is RFC 8785 (JCS). An
-unknown field or a `null` anywhere is malformed.
+unknown field or a `null` anywhere is malformed, and so is a token
+with more than `MAX_BLOCKS` (16) blocks.
 
 ## Cross-language
 

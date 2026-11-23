@@ -6,7 +6,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
-import { attenuate, decodeToken, encodeToken, generateKey, signRoot, signRootMultisig, verify, VerifyError } from "../src/index.js";
+import { attenuate, decodeToken, encodeToken, generateKey, MAX_BLOCKS, signRoot, signRootMultisig, verify, VerifyError } from "../src/index.js";
 import type { Caveats, Policy, Token } from "../src/index.js";
 
 const NOW = new Date("2026-05-14T10:00:01Z");
@@ -50,6 +50,13 @@ test("attenuate leaves the parent token as it was", () => {
   attenuate(parent, caveats({ run_id: "run" }));
   assert.equal(encodeToken(parent), before);
   verify(parent, policy, NOW);
+});
+
+test("a chain longer than MAX_BLOCKS is malformed", () => {
+  let t = personToken();
+  for (let i = 1; i < MAX_BLOCKS; i++) t = attenuate(t, caveats({ run_id: `run${i}` }));
+  assert.equal(verify(t, policy, NOW).chain.length, MAX_BLOCKS);
+  fails(attenuate(t, caveats({ run_id: "one-too-many" })), "macaroon_malformed");
 });
 
 test("any expired block fails the token", () => {

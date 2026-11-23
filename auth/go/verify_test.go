@@ -125,6 +125,18 @@ func TestDroppingABlockFailsTheProof(t *testing.T) {
 	wantCode(t, encode(t, child), p, macaroon.ErrInvalidProof)
 }
 
+func TestChainLongerThanMaxBlocksIsMalformed(t *testing.T) {
+	tok, policy := personToken(t)
+	for i := 1; i < macaroon.MaxBlocks; i++ {
+		tok = attenuate(t, tok, caveats("run"))
+	}
+	claims, err := macaroon.Verify(encode(t, tok), policy, testNow)
+	if err != nil || len(claims.Chain) != macaroon.MaxBlocks {
+		t.Fatalf("a chain of MaxBlocks must verify: %v", err)
+	}
+	wantCode(t, encode(t, attenuate(t, tok, caveats("one-too-many"))), policy, macaroon.ErrMacaroonMalformed)
+}
+
 func TestExpiredBlockFails(t *testing.T) {
 	tok, p := personToken(t)
 	c := caveats("run")

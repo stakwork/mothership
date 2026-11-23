@@ -58,7 +58,7 @@ export {
 export type { Signer } from "./sign.js";
 
 // Verifier.
-export { verify, decodeToken, encodeToken, VerifyError } from "./verify.js";
+export { verify, decodeToken, encodeToken, VerifyError, MAX_BLOCKS } from "./verify.js";
 export type { VerifyErrorCode } from "./verify.js";
 
 // Transparency log (phase 12): Merkle verifiers + signed tree heads.
