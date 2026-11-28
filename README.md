@@ -101,6 +101,41 @@ against the same source tree (avoiding the "plugin was built with a
 different version of package" trap), builds the (stdlib-only) wrapper
 binary, and produces a single Alpine runtime image with all three.
 
+## Which provider serves a call
+
+The route and the model name it, and nothing else does:
+
+- **`<provider>/<id>` names the provider** on any route:
+  `gemini/gemini-4-argon`, `openrouter/moonshotai/kimi-k3` or
+  `maple/gemma4-31b` on `/openai/v1`.
+- **A bare id is the route's provider's model:** `/openai/*` → `openai`,
+  `/anthropic/*` → `anthropic`, `/genai/*` → `gemini`. A bare
+  `gemini-4-argon` on `/openai/v1` is sent to OpenAI, which refuses it.
+- **No other provider is tried.** A call the provider refuses (429, 503, a
+  retired model) comes back with that provider's error.
+
+The plugin's `PreRequestHook` does the second and third
+(`internal/hooks/request_prehook.go`). Without it, Bifrost (v2.6.0) leaves
+a bare id's provider to its model-catalog resolver. The resolver picks the
+route's provider when its catalog lists the model, and adds every other
+provider whose catalog lists it as automatic fallbacks. OpenRouter's
+catalog lists almost every model. `openrouter-images`, like any provider
+with no model list, claims them all. So a Gemini call that Gemini refused
+was retried on OpenRouter, and a model Gemini does not list went to
+`openrouter-images` first: the caller saw OpenRouter's error, or
+OpenRouter's answer, for a Gemini call. A person's virtual key allows
+every provider until an admin picks models, so it stopped none of this.
+
+Bifrost's own routes (`/v1/*`) have no provider of their own, so the
+plugin leaves a bare id there to Bifrost. A box serves only the three
+provider routes. `scripts/route-e2e.ts` proves all of this on the image,
+with no provider keys:
+
+```bash
+make docker-build
+cd auth/ts && npm install --no-package-lock && node --import tsx ../../scripts/route-e2e.ts
+```
+
 ## Authentication
 
 The dashboard UI and Bifrost's `/api/*` admin endpoints (governance,
@@ -615,6 +650,12 @@ reconciled by hash, so a changed seed wins on the next boot, and a
 dashboard edit survives until the seed changes. (Found while upgrading to
 v2.5.1 in stakwork/stakgraph#1865.)
 
+**Routing.** Run `scripts/route-e2e.ts` on the new image ("Which provider
+serves a call"). It fails if the new Bifrost reads the route from a
+different context key, stops running a pre_builtin plugin's
+`PreRequestHook` before its own routing, or finds another way to send a
+bare model to a second provider.
+
 ## Local plugin build (without docker)
 
 Useful while iterating on the Go code. You still need a dynamic
@@ -634,6 +675,7 @@ arm64 ≠ amd64). Build inside the image when in doubt.
 | ------------------------------ | -------------------------------- | --------------------------------------------------------------------------------- |
 | `Init`                         | on plugin load                   | parsed config                                                                     |
 | `HTTPTransportPreHook`         | before bifrost core              | method, path, body size, governance headers (`x-macaroon`, plus all `x-bf-dim-*`) |
+| `PreRequestHook`               | once, before Bifrost's routing   | a bare model it gives its route's provider (model, route, provider)                |
 | `PreLLMHook`                   | before provider call             | provider, model, request type, run_id                                             |
 | `PostLLMHook`                  | after provider call (non-stream) | run_id, presence flags, usage tokens, elapsed                                     |
 | `HTTPTransportPostHook`        | after bifrost core (non-stream)  | path, status, body size, run_id, elapsed                                          |
