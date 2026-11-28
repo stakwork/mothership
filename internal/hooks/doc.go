@@ -23,6 +23,7 @@
 //	HTTPTransportPreHook       -> hooks.TransportPre
 //	HTTPTransportPostHook      -> hooks.TransportPost
 //	HTTPTransportStreamChunkHook -> hooks.StreamChunk
+//	PreRequestHook             -> hooks.RequestPre
 //	PreLLMHook                 -> hooks.LLMPre
 //	PostLLMHook                -> hooks.LLMPost
 package hooks

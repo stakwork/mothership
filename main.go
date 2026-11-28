@@ -185,6 +185,16 @@ func HTTPTransportStreamChunkHook(
 	return hooks.StreamChunk(ctx, req, chunk)
 }
 
+// PreRequestHook fires once per request, before Bifrost's own routing
+// plugins (governance, the model-catalog resolver): a model with no
+// provider prefix is served by its route's provider and no other.
+func PreRequestHook(
+	ctx *schemas.BifrostContext,
+	req *schemas.BifrostRequest,
+) error {
+	return hooks.RequestPre(ctx, req)
+}
+
 // PreLLMHook fires after bifrost has parsed the request into its
 // internal BifrostRequest type — first place we see resolved provider
 // + model.
